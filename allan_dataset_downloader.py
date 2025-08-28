@@ -46,29 +46,66 @@ class DatasetConfig:
 class AllanDatasetDownloader:
     """Загрузчик и предподготовка датасетов для проекта Allan"""
     
-    def __init__(self, project_path: str = "/content/drive/MyDrive/ML_Projects/Allan_Model"):
+    def __init__(self, project_path: Optional[str] = None):
+        # Подключение Google Drive в Colab
+        if IS_COLAB:
+            self._mount_google_drive()
+        
+        # Выбор пути проекта в зависимости от окружения
+        if project_path is None:
+            project_path = "/content/drive/MyDrive/ML_Projects/Allan_Model" if IS_COLAB else "/workspace/Allan_Model"
+        
         self.project_path = project_path
         self.datasets_path = f"{project_path}/datasets"
         self.raw_path = f"{self.datasets_path}/raw"
         self.processed_path = f"{self.datasets_path}/processed"
         self.cached_path = f"{self.datasets_path}/cached"
         self.temp_path = f"{self.datasets_path}/temp"
-        self.local_cache = "/content/allan_cache"
+        self.local_cache = "/content/allan_cache" if IS_COLAB else f"{self.project_path}/.allan_cache"
         
         # Создание необходимых директорий
         self._create_directories()
         
-        # Конфигурации популярных русскоязычных датасетов
+        # Расширенные конфигурации русскоязычных датасетов
         self.dataset_configs = self._load_dataset_configs()
         
         # Настройки загрузки
         self.chunk_size = 8192  # Размер чанка для загрузки
         self.max_retries = 3    # Максимальное количество попыток
         self.timeout = 300      # Таймаут загрузки в секундах
+
+    def _mount_google_drive(self):
+        """Подключение Google Drive в Google Colab"""
+        try:
+            print("🔌 Подключение Google Drive...")
+            
+            # Проверяем, не подключен ли уже диск
+            if os.path.exists('/content/drive/MyDrive'):
+                print("✅ Google Drive уже подключен")
+                return True
+            
+            # Подключаем Google Drive
+            drive.mount('/content/drive', force_remount=True)
+            
+            # Проверяем успешность подключения
+            if os.path.exists('/content/drive/MyDrive'):
+                print("✅ Google Drive успешно подключен")
+                return True
+            else:
+                print("❌ Ошибка: Google Drive не подключен")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Ошибка подключения Google Drive: {e}")
+            print("💡 Попробуйте выполнить подключение вручную:")
+            print("   from google.colab import drive")
+            print("   drive.mount('/content/drive')")
+            return False
         
     def _create_directories(self):
         """Создание необходимых директорий"""
         directories = [
+            self.project_path,
             self.datasets_path,
             self.raw_path,
             self.processed_path,
@@ -77,12 +114,20 @@ class AllanDatasetDownloader:
             self.local_cache
         ]
         
+        print("📁 Создание директорий...")
         for directory in directories:
-            os.makedirs(directory, exist_ok=True)
+            try:
+                os.makedirs(directory, exist_ok=True)
+                print(f"  ✅ {directory}")
+            except PermissionError:
+                print(f"  ❌ Нет прав для создания: {directory}")
+            except Exception as e:
+                print(f"  ❌ Ошибка создания {directory}: {e}")
     
     def _load_dataset_configs(self) -> Dict[str, DatasetConfig]:
-        """Загрузка конфигураций датасетов"""
+        """Загрузка расширенных конфигураций русскоязычных датасетов"""
         configs = {
+            # Оригинальные датасеты
             "sberquad": DatasetConfig(
                 name="sberquad",
                 source_url="sberbank-ai/sberquad",
@@ -95,6 +140,7 @@ class AllanDatasetDownloader:
                 validation_checks=["check_qa_format", "validate_russian_text"],
                 dependencies=["transformers", "datasets"]
             ),
+            
             "rucola": DatasetConfig(
                 name="rucola",
                 source_url="RussianNLP/rucola",
@@ -107,9 +153,10 @@ class AllanDatasetDownloader:
                 validation_checks=["check_classification_format", "validate_russian_text"],
                 dependencies=["transformers", "datasets"]
             ),
+            
             "russian_superglue": DatasetConfig(
                 name="russian_superglue",
-                source_url="russian-nlp/russian-superglue",
+                source_url="RussianNLP/russian_super_glue",
                 source_type="huggingface",
                 format="hf_dataset",
                 size_mb=200,
@@ -119,6 +166,34 @@ class AllanDatasetDownloader:
                 validation_checks=["check_multitask_format", "validate_russian_text"],
                 dependencies=["transformers", "datasets"]
             ),
+
+            # Новые русскоязычные датасеты
+            "russian_tape": DatasetConfig(
+                name="russian_tape",
+                source_url="RussianNLP/tape",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=300,
+                description="TAPE - комплексная оценка понимания русского языка",
+                task_type="multi_task",
+                preprocessing_steps=["task_specific_preprocessing", "unified_format"],
+                validation_checks=["check_multitask_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "ru_paradetox": DatasetConfig(
+                name="ru_paradetox",
+                source_url="s-nlp/ru_paradetox",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=100,
+                description="Датасет для детоксикации русского текста",
+                task_type="text_detoxification",
+                preprocessing_steps=["text_cleaning", "create_pairs", "max_length_256"],
+                validation_checks=["check_paraphrase_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
             "lenta_news": DatasetConfig(
                 name="lenta_news",
                 source_url="IlyaGusev/gazeta",
@@ -131,6 +206,7 @@ class AllanDatasetDownloader:
                 validation_checks=["check_text_format", "validate_russian_text"],
                 dependencies=["transformers", "datasets"]
             ),
+
             "russian_poems": DatasetConfig(
                 name="russian_poems",
                 source_url="IlyaGusev/russian_poems",
@@ -143,6 +219,216 @@ class AllanDatasetDownloader:
                 validation_checks=["check_poem_format", "validate_russian_text"],
                 dependencies=["transformers", "datasets"]
             ),
+
+            "rucos": DatasetConfig(
+                name="rucos", 
+                source_url="IlyaGusev/rucos",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=80,
+                description="Чтение с пониманием и здравым смыслом для русского языка",
+                task_type="reading_comprehension",
+                preprocessing_steps=["tokenization", "max_length_512", "context_question_pairs"],
+                validation_checks=["check_qa_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_sentiment_twitter": DatasetConfig(
+                name="russian_sentiment_twitter",
+                source_url="Tatyana/russian_sentiment_twitter",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=200,
+                description="Анализ тональности русских твитов",
+                task_type="sentiment_analysis",
+                preprocessing_steps=["text_cleaning", "max_length_256", "sentiment_labels"],
+                validation_checks=["check_sentiment_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_detox": DatasetConfig(
+                name="russian_detox",
+                source_url="unitary/toxic-bert",
+                source_type="huggingface", 
+                format="hf_dataset",
+                size_mb=150,
+                description="Детекция токсичности в русском тексте",
+                task_type="toxicity_detection",
+                preprocessing_steps=["text_cleaning", "max_length_256", "binary_labels"],
+                validation_checks=["check_classification_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_ner": DatasetConfig(
+                name="russian_ner",
+                source_url="wietsedv/wikiner_russian",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=50,
+                description="Распознавание именованных сущностей для русского языка",
+                task_type="ner",
+                preprocessing_steps=["tokenization", "ner_labels", "max_length_256"],
+                validation_checks=["check_ner_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "openvqa_ru": DatasetConfig(
+                name="openvqa_ru",
+                source_url="open-vqa/openvqa_ru",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=500,
+                description="Визуальные вопросы-ответы на русском языке",
+                task_type="visual_qa",
+                preprocessing_steps=["image_text_pairs", "max_length_256", "visual_features"],
+                validation_checks=["check_vqa_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets", "Pillow"]
+            ),
+
+            "ruwikititle": DatasetConfig(
+                name="ruwikititle",
+                source_url="IlyaGusev/ruwikititle",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=300,
+                description="Генерация заголовков из русской Википедии",
+                task_type="title_generation",
+                preprocessing_steps=["text_cleaning", "create_pairs", "max_length_512"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "taiga_news": DatasetConfig(
+                name="taiga_news",
+                source_url="https://github.com/TatianaShavrina/taiga_site/releases/download/v1.0/news.tar.gz",
+                source_type="url",
+                format="tar",
+                size_mb=3000,
+                description="Новостной корпус Taiga - огромная коллекция русских новостей",
+                task_type="text_generation",
+                preprocessing_steps=["text_cleaning", "max_length_1024", "remove_html"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["pandas", "numpy"]
+            ),
+
+            "opencorpora": DatasetConfig(
+                name="opencorpora",
+                source_url="https://github.com/OpenCorpora/opencorpora/archive/master.zip",
+                source_type="url",
+                format="zip",
+                size_mb=500,
+                description="Морфологически размеченный корпус русского языка",
+                task_type="morphology",
+                preprocessing_steps=["morphology_parsing", "tokenization", "pos_tagging"],
+                validation_checks=["check_morphology_format", "validate_russian_text"],
+                dependencies=["pandas", "numpy", "pymorphy2"]
+            ),
+
+            "rureviews": DatasetConfig(
+                name="rureviews",
+                source_url="sismetanin/rureviews",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=800,
+                description="Отзывы на русском языке с различных платформ",
+                task_type="sentiment_analysis",
+                preprocessing_steps=["text_cleaning", "max_length_512", "sentiment_labels"],
+                validation_checks=["check_sentiment_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_dialogues": DatasetConfig(
+                name="russian_dialogues",
+                source_url="Grossmend/oasst_ru",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=200,
+                description="Диалоги на русском языке для обучения чат-ботов",
+                task_type="dialogue",
+                preprocessing_steps=["dialogue_formatting", "max_length_512", "conversation_pairs"],
+                validation_checks=["check_dialogue_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "ru_pikabu": DatasetConfig(
+                name="ru_pikabu",
+                source_url="IlyaGusev/pikabu",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=1500,
+                description="Посты и комментарии с сайта Pikabu",
+                task_type="text_generation",
+                preprocessing_steps=["text_cleaning", "max_length_1024", "social_media_formatting"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "rutax": DatasetConfig(
+                name="rutax",
+                source_url="https://github.com/rutar-anonymous/RuTaR/archive/main.zip",
+                source_type="url",
+                format="zip",
+                size_mb=50,
+                description="Рассуждения о налогах на русском языке",
+                task_type="reasoning",
+                preprocessing_steps=["text_cleaning", "max_length_512", "legal_formatting"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["pandas", "numpy"]
+            ),
+
+            "russian_literature": DatasetConfig(
+                name="russian_literature",
+                source_url="IlyaGusev/russian_literature",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=2000,
+                description="Классическая русская литература",
+                task_type="text_generation",
+                preprocessing_steps=["text_cleaning", "max_length_1024", "literature_formatting"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_jokes": DatasetConfig(
+                name="russian_jokes",
+                source_url="cointegrated/russian-jokes-dataset",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=100,
+                description="Русские анекдоты и шутки",
+                task_type="text_generation",
+                preprocessing_steps=["text_cleaning", "max_length_256", "joke_formatting"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_medical": DatasetConfig(
+                name="russian_medical",
+                source_url="d0rj/russian-medical-qa",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=300,
+                description="Медицинские вопросы и ответы на русском языке",
+                task_type="medical_qa",
+                preprocessing_steps=["text_cleaning", "max_length_512", "medical_formatting"],
+                validation_checks=["check_qa_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            "russian_headlines": DatasetConfig(
+                name="russian_headlines",
+                source_url="IlyaGusev/headline_cause",
+                source_type="huggingface",
+                format="hf_dataset",
+                size_mb=250,
+                description="Генерация заголовков для русских новостей",
+                task_type="headline_generation",
+                preprocessing_steps=["text_cleaning", "create_pairs", "max_length_256"],
+                validation_checks=["check_text_format", "validate_russian_text"],
+                dependencies=["transformers", "datasets"]
+            ),
+
+            # Сохраняем и ранее доступные URL-датасеты
             "russian_paraphrase": DatasetConfig(
                 name="russian_paraphrase",
                 source_url="https://storage.googleapis.com/russian-paraphrase/russian_paraphrase.zip",
@@ -264,7 +550,7 @@ class AllanDatasetDownloader:
                 return False
             
             # Извлекаем архив если нужно
-            if config.format in ['zip', 'tar']:
+            if config.format in ['zip', 'tar', 'tar.gz']:
                 extract_dir = f"{temp_dir}/extracted"
                 os.makedirs(extract_dir, exist_ok=True)
                 
@@ -330,6 +616,20 @@ class AllanDatasetDownloader:
                 print(f"  ✅ {dep} установлен")
             except subprocess.CalledProcessError as e:
                 print(f"  ⚠️  Ошибка установки {dep}: {e}")
+
+    def check_google_drive_space(self) -> Dict[str, float]:
+        """Проверка свободного места на Google Drive"""
+        try:
+            total, used, free = shutil.disk_usage("/content/drive/MyDrive")
+            return {
+                "total_gb": total / (1024**3),
+                "used_gb": used / (1024**3),
+                "free_gb": free / (1024**3),
+                "free_percent": (free / total) * 100
+            }
+        except Exception as e:
+            print(f"❌ Ошибка проверки места: {e}")
+            return {}
     
     def preprocess_dataset(self, dataset_name: str, config: DatasetConfig) -> bool:
         """Предобработка датасета"""
@@ -565,6 +865,13 @@ class AllanDatasetDownloader:
             
             config = self.dataset_configs[dataset_name]
             
+            # Проверяем место на диске (в Colab)
+            space_info = self.check_google_drive_space()
+            if space_info and space_info.get('free_gb', 0) < (config.size_mb / 1024 * 2):  # x2 для безопасности
+                print(f"⚠️  Предупреждение: Мало места на диске!")
+                print(f"   Требуется: ~{config.size_mb/1024:.1f} ГБ")
+                print(f"   Доступно: {space_info['free_gb']:.1f} ГБ")
+            
             # Шаг 1: Загрузка
             print(f"\n📥 Шаг 1: Загрузка датасета '{dataset_name}'")
             if config.source_type == "huggingface":
@@ -600,25 +907,132 @@ class AllanDatasetDownloader:
         except Exception as e:
             print(f"❌ Ошибка в процессе загрузки и предобработки: {e}")
             return False
+
+    def batch_download(self, dataset_names: List[str], max_parallel: int = 2) -> Dict[str, bool]:
+        """Пакетная загрузка нескольких датасетов"""
+        results = {}
+        
+        print(f"📦 Пакетная загрузка {len(dataset_names)} датасетов...")
+        print(f"🔄 Максимум параллельных загрузок: {max_parallel}")
+        
+        for i, dataset_name in enumerate(dataset_names, 1):
+            print(f"\n📊 Прогресс: {i}/{len(dataset_names)} - {dataset_name}")
+            results[dataset_name] = self.download_and_preprocess(dataset_name)
+            
+            if i % max_parallel == 0:
+                print("⏸️  Пауза между загрузками...")
+                time.sleep(5)
+        
+        # Отчет о результатах
+        successful = sum(1 for success in results.values() if success)
+        print(f"\n📋 Результаты пакетной загрузки:")
+        print(f"  ✅ Успешно: {successful}/{len(dataset_names)}")
+        print(f"  ❌ Ошибки: {len(dataset_names) - successful}/{len(dataset_names)}")
+        
+        return results
     
     def list_available_datasets(self):
         """Список доступных датасетов для загрузки"""
-        print("📚 Доступные датасеты для загрузки:")
+        print("📚 Доступные русскоязычные датасеты для загрузки:")
         print("=" * 80)
         
+        # Группировка по типам задач
+        by_task: Dict[str, List[Tuple[str, DatasetConfig]]] = {}
         for name, config in self.dataset_configs.items():
-            print(f"\n🔹 {name}")
-            print(f"  📊 Размер: {config.size_mb} МБ")
-            print(f"  🎯 Задача: {config.task_type}")
-            print(f"  🌐 Источник: {config.source_type}")
-            print(f"  📝 {config.description}")
-            print(f"  🔗 URL: {config.source_url}")
+            task = config.task_type
+            if task not in by_task:
+                by_task[task] = []
+            by_task[task].append((name, config))
+        
+        for task_type, datasets in by_task.items():
+            print(f"\n🎯 **{task_type.upper()}**")
+            print("-" * 50)
             
-            if config.preprocessing_steps:
-                print(f"  🔧 Предобработка: {', '.join(config.preprocessing_steps)}")
+            for name, config in datasets:
+                print(f"\n🔹 **{name}**")
+                print(f"  📊 Размер: {config.size_mb} МБ")
+                print(f"  🌐 Источник: {config.source_type}")
+                print(f"  📝 {config.description}")
+                print(f"  🔗 URL: {config.source_url}")
+        
+        # Показываем статистику
+        total_size = sum(config.size_mb for config in self.dataset_configs.values())
+        print(f"\n📊 **ОБЩАЯ СТАТИСТИКА:**")
+        print(f"  • Всего датасетов: {len(self.dataset_configs)}")
+        print(f"  • Общий размер: {total_size:.1f} МБ ({total_size/1024:.1f} ГБ)")
+        print(f"  • Типов задач: {len(set(config.task_type for config in self.dataset_configs.values()))}")
+
+    def suggest_datasets_by_task(self, task_type: str) -> List[str]:
+        """Предложение датасетов по типу задачи"""
+        suggestions: List[str] = []
+        for name, config in self.dataset_configs.items():
+            if config.task_type == task_type:
+                suggestions.append(name)
+        
+        if suggestions:
+            print(f"📋 Датасеты для задачи '{task_type}':")
+            for dataset in suggestions:
+                config = self.dataset_configs[dataset]
+                print(f"  • {dataset} ({config.size_mb} МБ) - {config.description}")
+        else:
+            print(f"❌ Датасеты для задачи '{task_type}' не найдены")
+        
+        return suggestions
+
+    def recommend_datasets_by_size(self, max_size_gb: float = 2.0) -> List[str]:
+        """Рекомендация датасетов по размеру"""
+        max_size_mb = max_size_gb * 1024
+        recommendations: List[Tuple[str, DatasetConfig]] = []
+        
+        for name, config in self.dataset_configs.items():
+            if config.size_mb <= max_size_mb:
+                recommendations.append((name, config))
+        
+        # Сортируем по размеру
+        recommendations.sort(key=lambda x: x[1].size_mb, reverse=True)
+        
+        print(f"📊 Датасеты размером до {max_size_gb} ГБ:")
+        for name, config in recommendations:
+            print(f"  • {name} ({config.size_mb} МБ) - {config.task_type}")
+        
+        return [name for name, _ in recommendations]
+
+    def export_dataset_list(self, output_format: str = "json") -> str:
+        """Экспорт списка датасетов в файл"""
+        try:
+            export_data: Dict[str, Dict[str, Union[str, float]]] = {}
+            for name, config in self.dataset_configs.items():
+                export_data[name] = {
+                    "source_url": config.source_url,
+                    "source_type": config.source_type,
+                    "format": config.format,
+                    "size_mb": config.size_mb,
+                    "description": config.description,
+                    "language": config.language,
+                    "task_type": config.task_type
+                }
+
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
             
-            if config.validation_checks:
-                print(f"  ✅ Валидация: {', '.join(config.validation_checks)}")
+            if output_format.lower() == "json":
+                filename = f"datasets_list_{timestamp}.json"
+                filepath = f"{self.datasets_path}/{filename}"
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(export_data, f, ensure_ascii=False, indent=2)
+            
+            elif output_format.lower() == "csv":
+                import pandas as pd
+                filename = f"datasets_list_{timestamp}.csv"
+                filepath = f"{self.datasets_path}/{filename}"
+                df = pd.DataFrame.from_dict(export_data, orient='index')
+                df.to_csv(filepath, encoding='utf-8', index_label='dataset_name')
+
+            print(f"📄 Список датасетов экспортирован: {filepath}")
+            return filepath
+
+        except Exception as e:
+            print(f"❌ Ошибка экспорта: {e}")
+            return ""
     
     def get_dataset_status(self, dataset_name: str) -> Dict[str, Any]:
         """Получение статуса датасета"""
@@ -725,29 +1139,39 @@ def get_dataset_status(dataset_name: str) -> Dict[str, Any]:
     return downloader.get_dataset_status(dataset_name)
 
 
+def batch_download_recommended(task_type: str = None, max_size_gb: float = 2.0) -> Dict[str, bool]:
+    """Пакетная загрузка рекомендованных датасетов"""
+    downloader = AllanDatasetDownloader()
+    
+    if task_type:
+        datasets = downloader.suggest_datasets_by_task(task_type)
+    else:
+        datasets = downloader.recommend_datasets_by_size(max_size_gb)
+    
+    if datasets:
+        return downloader.batch_download(datasets[:5])  # Максимум 5 датасетов за раз
+    else:
+        print("❌ Нет подходящих датасетов для загрузки")
+        return {}
+
+
 if __name__ == "__main__":
     # Демонстрация работы загрузчика датасетов
     downloader = AllanDatasetDownloader()
-    
-    print("🔥 Allan Dataset Downloader - Демонстрация")
-    print("=" * 60)
-    
+
+    print("🔥 Allan Dataset Downloader - Демонстрация (Обновленная версия)")
+    print("=" * 70)
+
+    # Проверяем место на диске
+    space_info = downloader.check_google_drive_space()
+    if space_info:
+        print(f"\n💾 **Использование Google Drive:**")
+        print(f"  • Всего: {space_info['total_gb']:.1f} ГБ")
+        print(f"  • Использовано: {space_info['used_gb']:.1f} ГБ")
+        print(f"  • Свободно: {space_info['free_gb']:.1f} ГБ ({space_info['free_percent']:.1f}%)")
+
     # Показываем доступные датасеты
     downloader.list_available_datasets()
-    
-    # Показываем использование диска
-    print(f"\n💾 Использование диска:")
-    disk_usage = downloader.get_disk_usage()
-    for key, value in disk_usage.items():
-        if "percent" in key:
-            print(f"  {key}: {value:.1f}%")
-        else:
-            print(f"  {key}: {value:.2f} ГБ")
-    
-    # Пример загрузки датасета (закомментировано для демонстрации)
-    # print(f"\n🚀 Пример загрузки датасета 'sberquad':")
-    # success = downloader.download_and_preprocess("sberquad")
-    # if success:
-    #     print("✅ Датасет успешно загружен!")
-    # else:
-    #     print("❌ Ошибка загрузки датасета")
+
+    print(f"\n🚀 **Готово к загрузке датасетов!**")
+    print("💡 Используйте: downloader.download_and_preprocess('dataset_name')")
