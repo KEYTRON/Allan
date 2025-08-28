@@ -20,6 +20,14 @@ import subprocess
 from tqdm import tqdm
 import hashlib
 
+# Импорт для работы с Google Drive в Google Colab
+try:
+    from google.colab import drive
+    IS_COLAB = True
+except ImportError:
+    IS_COLAB = False
+    print("⚠️  Google Colab не обнаружен. Проверьте, что код запускается в Colab.")
+
 @dataclass
 class DatasetConfig:
     """Конфигурация датасета для загрузки"""
