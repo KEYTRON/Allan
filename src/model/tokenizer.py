@@ -72,17 +72,41 @@ class AllanTokenizer:
         # Если texts - это путь к файлу
         if isinstance(texts, str) and os.path.exists(texts):
             input_file = texts
+            # Проверяем что файл не пустой
+            with open(input_file, 'r', encoding='utf-8') as f:
+                first_line = f.readline()
+                if not first_line.strip():
+                    raise ValueError(f"Файл {input_file} пустой или содержит только пробелы")
+            print(f"Используется файл: {input_file}")
         else:
             # Сохраняем тексты во временный файл
             input_file = f"{model_prefix}_temp.txt"
             with open(input_file, 'w', encoding='utf-8') as f:
                 if isinstance(texts, list):
+                    if not texts:
+                        raise ValueError("Список текстов пустой")
+                    count = 0
                     for text in texts:
-                        f.write(text + '\n')
+                        if text and text.strip():  # Пропускаем пустые строки
+                            f.write(text.strip() + '\n')
+                            count += 1
+                    if count == 0:
+                        raise ValueError("Все тексты пустые")
+                    print(f"Записано {count} текстов во временный файл")
                 else:
+                    if not texts or not texts.strip():
+                        raise ValueError("Текст пустой")
                     f.write(texts)
 
+        # Проверяем размер файла
+        file_size = os.path.getsize(input_file)
+        if file_size == 0:
+            raise ValueError(f"Файл {input_file} пустой (0 байт)")
+
+        print(f"Размер файла для обучения: {file_size / 1024 / 1024:.2f} MB")
+
         # Обучаем SentencePiece
+        print(f"Обучение токенизатора (vocab_size={vocab_size})...")
         spm.SentencePieceTrainer.train(
             input=input_file,
             model_prefix=model_prefix,
