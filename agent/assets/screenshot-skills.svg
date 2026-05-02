@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">
+  <defs>
+    <style>
+      .bg { fill: #0c0c0e; }
+      .header { fill: #111114; }
+      .fg { fill: #e6e6ea; }
+      .muted { fill: #7a7a8a; }
+      .cyan { fill: #4dd9e0; }
+      .green { fill: #3ddc84; }
+      .orange { fill: #ff8c42; }
+      .grey { fill: #4a4a5a; }
+      .bold { font-weight: 700; }
+    </style>
+  </defs>
+  <rect width="900" height="420" class="bg"/>
+  <rect x="0" y="0" width="900" height="74" class="header"/>
+  <text x="14" y="20" class="cyan bold">  ___  __  __</text>
+  <text x="14" y="36" class="cyan bold"> / _ |/ / / /__ ____</text>
+  <text x="14" y="52" class="cyan bold">/ __ / /_/ / _ `/ _ \</text>
+  <text x="14" y="68" class="cyan bold">/_/ |_\____/\_,_/_//_/</text>
+  <text x="540" y="40" class="muted">Allan v0.1.0   [backend: ollama/llama3.2]   ~/work</text>
+
+  <text x="14" y="106" class="cyan bold">[you]</text>
+  <text x="60" y="106" class="fg">/skills</text>
+
+  <text x="14" y="136" class="grey bold">[sys]</text>
+  <text x="60" y="136" class="fg">• Анализ Go проекта — быстрый аудит структуры (used: 4)  [id: 7c9f3a1b]</text>
+  <text x="60" y="154" class="fg">• Поиск и предпросмотр файла — find + read_file (used: 2)  [id: 1e3d2c80]</text>
+  <text x="60" y="172" class="fg">• Деплой по SSH — git pull + systemctl restart (used: 1)  [id: 9a4f7e22]</text>
+
+  <text x="14" y="220" class="cyan bold">[you]</text>
+  <text x="60" y="220" class="fg">/skills show 7c9f3a1b</text>
+
+  <text x="14" y="250" class="grey bold">[sys]</text>
+  <text x="60" y="250" class="fg">Name: Анализ Go проекта</text>
+  <text x="60" y="268" class="fg">Description: быстрый аудит структуры репозитория на Go</text>
+  <text x="60" y="286" class="fg">Trigger: при задачах "проанализируй проект", "что в репо"</text>
+  <text x="60" y="304" class="fg">Solution: read go.mod → ls внутренних пакетов → go vet ./...</text>
+  <text x="60" y="322" class="fg">Tools: read_file → bash → bash</text>
+  <text x="60" y="340" class="fg">Used: 4</text>
+
+  <rect x="0" y="370" width="900" height="50" fill="#111114"/>
+  <text x="14" y="394" class="cyan bold">›</text>
+  <text x="34" y="394" class="muted">/skills</text>
+  <text x="14" y="412" class="muted">workspace ~/work · backend ollama · model llama3.2 · calls 0 · tokens 0     ? /help</text>
+</svg>
