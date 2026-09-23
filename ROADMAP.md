@@ -28,4 +28,4 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 
 ## Quality and releases
 - [ ] CI: build and tests on every push
-- [ ] Prebuilt binaries in GitHub releases
+- [x] Prebuilt binaries in GitHub releases
