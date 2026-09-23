@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/agent"
+	"github.com/keytron/allan/agent/internal/backend"
 )
 
 type FocusMode int
@@ -38,22 +41,28 @@ type Model struct {
 	history    []string
 	historyIdx int
 
-	popupOpen      bool
-	popupItems     []SlashCommand
-	popupSelected  int
+	popupOpen     bool
+	popupItems    []SlashCommand
+	popupSelected int
+	modelCatalog  []modelChoice
 
 	focus     FocusMode
 	ptyActive bool
 	ptyCmd    string
 	ptyOutput string
 
-	thinking bool
+	thinking  bool
 	startedAt time.Time
+}
+
+type modelChoice struct {
+	Provider string
+	Model    string
 }
 
 func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model {
 	ta := textarea.New()
-	ta.Placeholder = "Спроси Allan..."
+	ta.Placeholder = "Ask Allan..."
 	ta.ShowLineNumbers = false
 	ta.SetHeight(3)
 	ta.Prompt = ""
@@ -118,6 +127,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
+		m.updatePopup()
 	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -137,8 +147,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case tea.KeyTab:
 		if m.popupOpen {
 			if len(m.popupItems) > 0 {
-				m.textarea.SetValue(m.popupItems[m.popupSelected].Name + " ")
-				m.textarea.SetCursor(len(m.popupItems[m.popupSelected].Name) + 1)
+				insert := m.popupItems[m.popupSelected].Insert
+				if insert == "" {
+					insert = m.popupItems[m.popupSelected].Name + " "
+				}
+				m.textarea.SetValue(insert)
+				m.textarea.SetCursor(len(insert))
 				m.popupOpen = false
 			}
 			return nil
@@ -193,37 +207,111 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.textarea.SetValue("")
 		m.popupOpen = false
-		m.history = append(m.history, val)
+		m.history = append(m.history, redactSensitiveInput(val))
 		m.historyIdx = len(m.history)
 		return m.submit(val)
-	}
-	// Track input for popup
-	if !m.thinking {
-		val := m.textarea.Value()
-		if strings.HasPrefix(val, "/") && !strings.Contains(val, " ") {
-			matches := MatchSlash(val)
-			if len(matches) > 0 {
-				m.popupOpen = true
-				m.popupItems = matches
-				if m.popupSelected >= len(matches) {
-					m.popupSelected = 0
-				}
-			} else {
-				m.popupOpen = false
-			}
-		} else {
-			m.popupOpen = false
-		}
 	}
 	return nil
 }
 
+func (m *Model) updatePopup() {
+	if m.thinking {
+		m.popupOpen = false
+		return
+	}
+	val := m.textarea.Value()
+	if strings.HasPrefix(val, "/") {
+		matches := m.completionsFor(val)
+		if len(matches) > 0 {
+			m.popupOpen = true
+			m.popupItems = matches
+			if m.popupSelected >= len(matches) {
+				m.popupSelected = 0
+			}
+			return
+		}
+	}
+	m.popupOpen = false
+}
+
+func (m *Model) completionsFor(input string) []SlashCommand {
+	if !strings.Contains(input, " ") {
+		return MatchSlash(input)
+	}
+	if strings.HasPrefix(input, "/api ") {
+		return m.apiCompletions(input)
+	}
+	if strings.HasPrefix(input, "/model ") {
+		return m.modelCompletions(input)
+	}
+	return nil
+}
+
+func (m *Model) apiCompletions(input string) []SlashCommand {
+	endsWithSpace := strings.HasSuffix(input, " ")
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return nil
+	}
+	if len(parts) == 1 || (len(parts) == 2 && !endsWithSpace) {
+		prefix := ""
+		if len(parts) == 2 {
+			prefix = parts[1]
+		}
+		return filterCompletions(prefix, []SlashCommand{
+			{Name: "add", Help: "добавить API-ключ", Insert: "/api add "},
+			{Name: "list", Help: "показать сохранённые провайдеры", Insert: "/api list"},
+			{Name: "refresh", Help: "опросить модели всех провайдеров", Insert: "/api refresh"},
+			{Name: "use", Help: "сделать провайдера активным", Insert: "/api use "},
+			{Name: "remove", Help: "удалить провайдера", Insert: "/api remove "},
+		})
+	}
+	sub := ""
+	if len(parts) >= 2 {
+		sub = parts[1]
+	}
+	if sub == "add" && (len(parts) == 2 || (len(parts) == 3 && !endsWithSpace)) {
+		prefix := ""
+		if len(parts) == 3 {
+			prefix = parts[2]
+		}
+		return providerCompletions(prefix, "/api add ")
+	}
+	if (sub == "use" || sub == "remove" || sub == "delete" || sub == "rm") && (len(parts) == 2 || (len(parts) == 3 && !endsWithSpace)) {
+		prefix := ""
+		if len(parts) == 3 {
+			prefix = parts[2]
+		}
+		return configuredProviderCompletions(prefix, "/api "+sub+" ", m.Cfg)
+	}
+	return nil
+}
+
+func (m *Model) modelCompletions(input string) []SlashCommand {
+	if len(m.modelCatalog) == 0 {
+		return []SlashCommand{{
+			Name:   "refresh",
+			Help:   "сначала обновить список моделей",
+			Insert: "/api refresh",
+		}}
+	}
+	prefix := strings.TrimSpace(strings.TrimPrefix(input, "/model"))
+	out := make([]SlashCommand, 0, len(m.modelCatalog))
+	for i, choice := range m.modelCatalog {
+		label := fmt.Sprintf("%d. %s/%s", i+1, choice.Provider, choice.Model)
+		insert := fmt.Sprintf("/model %d", i+1)
+		if prefix == "" || strings.Contains(strings.ToLower(label), strings.ToLower(prefix)) {
+			out = append(out, SlashCommand{Name: label, Help: "выбрать модель", Insert: insert})
+		}
+	}
+	return out
+}
+
 func (m *Model) submit(input string) tea.Cmd {
-	m.appendMsg(Message{Kind: MsgYou, Text: input})
+	m.appendMsg(Message{Kind: MsgYou, Text: redactSensitiveInput(input)})
 
 	if strings.HasPrefix(input, "/") {
-		m.handleSlash(input)
-		return nil
+		return m.handleSlash(input)
 	}
 
 	m.thinking = true
@@ -239,6 +327,15 @@ func (m *Model) submit(input string) tea.Cmd {
 		go m.drainEvents(events)
 		return agentEventMsg{ev: ev}
 	}
+}
+
+func redactSensitiveInput(input string) string {
+	parts := strings.Fields(input)
+	if len(parts) >= 4 && parts[0] == "/api" && (parts[1] == "add" || parts[1] == "set") {
+		parts[3] = "****"
+		return strings.Join(parts, " ")
+	}
+	return input
 }
 
 func (m *Model) drainEvents(events <-chan agent.Event) {
@@ -292,7 +389,7 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 	m.recalcLayout()
 }
 
-func (m *Model) handleSlash(input string) {
+func (m *Model) handleSlash(input string) tea.Cmd {
 	parts := strings.Fields(input)
 	cmd := parts[0]
 	args := parts[1:]
@@ -304,7 +401,7 @@ func (m *Model) handleSlash(input string) {
 		}
 		m.appendMsg(Message{Kind: MsgSys, Text: strings.TrimRight(sb.String(), "\n")})
 	case "/quit", "/exit":
-		globalProgram.Send(tea.Quit())
+		return tea.Quit
 	case "/clear":
 		m.messages = nil
 		m.Ag.ClearHistory()
@@ -330,30 +427,33 @@ func (m *Model) handleSlash(input string) {
 		if m.Ag.Memory == nil {
 			m.appendMsg(Message{Kind: MsgWarn, Text: "Память отключена"})
 		} else {
-			m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Сессия: %s, тулзов: %d, токенов in/out: %d/%d",
-				m.Ag.SessionID, m.Ag.Stats.ToolCalls, m.Ag.Stats.TokensIn, m.Ag.Stats.TokensOut)})
+			m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Память включена\nsession=%s\ndb=%s\nchromadb=%s\ntool_calls=%d\ntokens_in=%d\ntokens_out=%d",
+				m.Ag.SessionID, config.Expand(m.Cfg.Memory.DBPath), m.Cfg.Memory.ChromaDBURL,
+				m.Ag.Stats.ToolCalls, m.Ag.Stats.TokensIn, m.Ag.Stats.TokensOut)})
 		}
 	case "/skills":
 		m.handleSkills(args)
+	case "/api":
+		m.handleAPI(args)
 	case "/model":
-		if len(args) == 0 {
-			m.appendMsg(Message{Kind: MsgSys, Text: "Текущая модель: " + m.Cfg.Backend.Model})
-			return
-		}
-		m.Cfg.Backend.Model = args[0]
-		_ = config.Save(m.Cfg)
-		m.appendMsg(Message{Kind: MsgSys, Text: "Модель сменена на " + args[0] + " (потребуется перезапуск для смены backend)"})
+		m.handleModel(args)
 	case "/backend":
 		if len(args) == 0 {
 			m.appendMsg(Message{Kind: MsgSys, Text: "Текущий бэкенд: " + m.Cfg.Backend.Type})
-			return
+			return nil
 		}
 		m.appendMsg(Message{Kind: MsgWarn, Text: "Смена бэкенда требует перезапуска. Установлено в конфиге: " + args[0]})
 		m.Cfg.Backend.Type = args[0]
 		_ = config.Save(m.Cfg)
 	default:
+		matches := MatchSlash(cmd)
+		if len(matches) == 1 {
+			expanded := strings.TrimSpace(matches[0].Name + " " + strings.Join(args, " "))
+			return m.handleSlash(expanded)
+		}
 		m.appendMsg(Message{Kind: MsgWarn, Text: "Неизвестная команда: " + cmd})
 	}
+	return nil
 }
 
 func (m *Model) handleSkills(args []string) {
@@ -413,6 +513,380 @@ func (m *Model) handleSkills(args []string) {
 	default:
 		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды: show, delete, export"})
 	}
+}
+
+func (m *Model) handleAPI(args []string) {
+	if len(args) == 0 {
+		m.appendMsg(Message{Kind: MsgSys, Text: strings.Join([]string{
+			"/api list",
+			"/api add <provider> <api_key> [base_url]",
+			"/api use <provider>",
+			"/api remove <provider>",
+			"/api refresh",
+			"",
+			"Провайдеры: anthropic, openai, openrouter, deepseek, xai/grok, groq, ollama, llamacpp, lmstudio.",
+		}, "\n")})
+		return
+	}
+	switch args[0] {
+	case "list", "show":
+		m.appendMsg(Message{Kind: MsgSys, Text: m.renderProviders()})
+	case "add", "set":
+		if len(args) < 3 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: "/api add <provider> <api_key> [base_url]"})
+			return
+		}
+		name := normalizeProvider(args[1])
+		base := ""
+		if len(args) >= 4 {
+			base = args[3]
+		} else {
+			base = defaultBaseURL(name)
+		}
+		if m.Cfg.Providers == nil {
+			m.Cfg.Providers = map[string]config.ProviderConfig{}
+		}
+		m.Cfg.Providers[name] = config.ProviderConfig{
+			Type:    providerType(name),
+			BaseURL: base,
+			APIKey:  args[2],
+		}
+		if err := config.Save(m.Cfg); err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+			return
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("API-ключ для %s сохранён. Выполните /api refresh или /model, чтобы обновить список моделей.", name)})
+	case "use":
+		if len(args) < 2 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: "/api use <provider>"})
+			return
+		}
+		name := normalizeProvider(args[1])
+		model := m.Cfg.Backend.Model
+		if len(m.modelCatalog) == 0 {
+			_ = m.refreshModelCatalog(context.Background())
+		}
+		for _, choice := range m.modelCatalog {
+			if choice.Provider == name {
+				model = choice.Model
+				break
+			}
+		}
+		m.switchBackendModel(name, model)
+	case "remove", "delete", "rm":
+		if len(args) < 2 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: "/api remove <provider>"})
+			return
+		}
+		name := normalizeProvider(args[1])
+		delete(m.Cfg.Providers, name)
+		if err := config.Save(m.Cfg); err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+			return
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: "Провайдер удалён: " + name})
+	case "refresh":
+		if err := m.refreshModelCatalog(context.Background()); err != nil {
+			m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: m.renderModelCatalog()})
+	default:
+		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды /api: list, add, use, remove, refresh"})
+	}
+}
+
+func (m *Model) handleModel(args []string) {
+	if len(args) == 0 {
+		if err := m.refreshModelCatalog(context.Background()); err != nil {
+			m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: m.renderModelCatalog()})
+		return
+	}
+	choice, ok := m.resolveModelChoice(strings.Join(args, " "))
+	if !ok {
+		m.appendMsg(Message{Kind: MsgWarn, Text: "Модель не найдена. Сначала выполните /model или /api refresh, затем /model <номер>."})
+		return
+	}
+	m.switchBackendModel(choice.Provider, choice.Model)
+}
+
+func (m *Model) refreshModelCatalog(ctx context.Context) error {
+	choices := []modelChoice{}
+	failures := []string{}
+	providers := m.availableProviders()
+	for _, name := range providers {
+		be, err := backendForProvider(name, m.Cfg, m.Cfg.Backend.Model)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		pctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		models, err := be.Models(pctx)
+		cancel()
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		for _, model := range models {
+			if model != "" {
+				choices = append(choices, modelChoice{Provider: name, Model: model})
+			}
+		}
+	}
+	sort.SliceStable(choices, func(i, j int) bool {
+		if choices[i].Provider == choices[j].Provider {
+			return choices[i].Model < choices[j].Model
+		}
+		return choices[i].Provider < choices[j].Provider
+	})
+	m.modelCatalog = choices
+	if len(choices) == 0 && len(failures) > 0 {
+		return fmt.Errorf("не удалось получить модели: %s", strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+func (m *Model) availableProviders() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = normalizeProvider(name)
+		if name != "" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	add(m.Cfg.Backend.Type)
+	for name := range m.Cfg.Providers {
+		add(name)
+	}
+	for _, name := range []string{"ollama", "llamacpp", "lmstudio"} {
+		add(name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (m *Model) renderModelCatalog() string {
+	if len(m.modelCatalog) == 0 {
+		return "Модели не найдены. Для API-провайдера добавьте ключ: /api add <provider> <api_key>"
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Текущая модель: %s/%s\n\n", m.Cfg.Backend.Type, m.Cfg.Backend.Model))
+	currentProvider := ""
+	for i, choice := range m.modelCatalog {
+		if choice.Provider != currentProvider {
+			currentProvider = choice.Provider
+			sb.WriteString(currentProvider + ":\n")
+		}
+		mark := " "
+		if choice.Provider == m.Cfg.Backend.Type && choice.Model == m.Cfg.Backend.Model {
+			mark = "*"
+		}
+		sb.WriteString(fmt.Sprintf("%s %2d. %s\n", mark, i+1, choice.Model))
+	}
+	sb.WriteString("\nВыбор: /model <номер> или /model <provider>/<model>")
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m *Model) renderProviders() string {
+	if len(m.Cfg.Providers) == 0 {
+		return "API-провайдеры не настроены. Добавить: /api add <provider> <api_key> [base_url]"
+	}
+	names := make([]string, 0, len(m.Cfg.Providers))
+	for name := range m.Cfg.Providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	for _, name := range names {
+		p := m.Cfg.Providers[name]
+		key := "missing"
+		if p.APIKey != "" {
+			key = "set"
+		}
+		active := ""
+		if name == m.Cfg.Backend.Type {
+			active = " (active)"
+		}
+		sb.WriteString(fmt.Sprintf("%s%s: type=%s base_url=%s api_key=%s\n", name, active, p.Type, p.BaseURL, key))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m *Model) resolveModelChoice(input string) (modelChoice, bool) {
+	input = strings.TrimSpace(input)
+	if n, err := strconv.Atoi(input); err == nil && n >= 1 && n <= len(m.modelCatalog) {
+		return m.modelCatalog[n-1], true
+	}
+	if strings.Contains(input, "/") {
+		parts := strings.SplitN(input, "/", 2)
+		return modelChoice{Provider: normalizeProvider(parts[0]), Model: parts[1]}, parts[0] != "" && parts[1] != ""
+	}
+	if len(m.modelCatalog) == 0 {
+		_ = m.refreshModelCatalog(context.Background())
+	}
+	for _, choice := range m.modelCatalog {
+		if choice.Model == input {
+			return choice, true
+		}
+	}
+	return modelChoice{Provider: m.Cfg.Backend.Type, Model: input}, input != ""
+}
+
+func (m *Model) switchBackendModel(provider, model string) {
+	provider = normalizeProvider(provider)
+	next, err := backendForProvider(provider, m.Cfg, model)
+	if err != nil {
+		m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+		return
+	}
+	m.Cfg.Backend.Type = provider
+	m.Cfg.Backend.Model = model
+	if p, ok := m.Cfg.Providers[provider]; ok {
+		m.Cfg.Backend.BaseURL = p.BaseURL
+		m.Cfg.Backend.APIKey = p.APIKey
+	} else {
+		m.Cfg.Backend.BaseURL = defaultBaseURL(provider)
+		if isLocalProvider(provider) {
+			m.Cfg.Backend.APIKey = ""
+		}
+	}
+	if err := config.Save(m.Cfg); err != nil {
+		m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+		return
+	}
+	m.Ag.Backend = next
+	m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Модель сменена: %s/%s", provider, model)})
+}
+
+func backendForProvider(provider string, cfg *config.Config, model string) (backend.Backend, error) {
+	provider = normalizeProvider(provider)
+	if p, ok := cfg.Providers[provider]; ok {
+		tmp := *cfg
+		tmp.Backend.Type = provider
+		tmp.Backend.Model = model
+		tmp.Backend.BaseURL = p.BaseURL
+		tmp.Backend.APIKey = p.APIKey
+		if p.Type != "" {
+			tmp.Backend.Type = p.Type
+			if provider != p.Type && p.Type == "openai" {
+				return backend.NewOpenAILike(provider, p.BaseURL, p.APIKey, model), nil
+			}
+		}
+		return backend.New(&tmp)
+	}
+	switch provider {
+	case "openrouter", "deepseek", "xai", "grok", "groq":
+		return nil, fmt.Errorf("%s требует API-ключ: /api add %s <api_key>", provider, provider)
+	default:
+		tmp := *cfg
+		tmp.Backend.Type = provider
+		tmp.Backend.Model = model
+		tmp.Backend.BaseURL = defaultBaseURL(provider)
+		if isLocalProvider(provider) {
+			tmp.Backend.APIKey = ""
+		}
+		return backend.New(&tmp)
+	}
+}
+
+func normalizeProvider(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "grok" {
+		return "xai"
+	}
+	return name
+}
+
+func providerType(name string) string {
+	switch normalizeProvider(name) {
+	case "openrouter", "deepseek", "xai", "groq":
+		return "openai"
+	default:
+		return normalizeProvider(name)
+	}
+}
+
+func defaultBaseURL(name string) string {
+	switch normalizeProvider(name) {
+	case "openai":
+		return "https://api.openai.com/v1"
+	case "anthropic":
+		return "https://api.anthropic.com"
+	case "openrouter":
+		return "https://openrouter.ai/api/v1"
+	case "deepseek":
+		return "https://api.deepseek.com/v1"
+	case "xai":
+		return "https://api.x.ai/v1"
+	case "groq":
+		return "https://api.groq.com/openai/v1"
+	case "ollama":
+		return "http://localhost:11434/v1"
+	case "llamacpp":
+		return "http://localhost:8080/v1"
+	case "lmstudio":
+		return "http://localhost:1234/v1"
+	default:
+		return ""
+	}
+}
+
+func isLocalProvider(name string) bool {
+	switch normalizeProvider(name) {
+	case "ollama", "llamacpp", "lmstudio":
+		return true
+	default:
+		return false
+	}
+}
+
+func filterCompletions(prefix string, items []SlashCommand) []SlashCommand {
+	if prefix == "" {
+		return items
+	}
+	prefix = strings.ToLower(prefix)
+	out := make([]SlashCommand, 0, len(items))
+	for _, item := range items {
+		if strings.HasPrefix(strings.ToLower(item.Name), prefix) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func providerCompletions(prefix, commandPrefix string) []SlashCommand {
+	return filterCompletions(prefix, []SlashCommand{
+		{Name: "anthropic", Help: "Claude API, base https://api.anthropic.com", Insert: commandPrefix + "anthropic "},
+		{Name: "openai", Help: "OpenAI API, base https://api.openai.com/v1", Insert: commandPrefix + "openai "},
+		{Name: "openrouter", Help: "OpenRouter, OpenAI-compatible", Insert: commandPrefix + "openrouter "},
+		{Name: "deepseek", Help: "DeepSeek, OpenAI-compatible", Insert: commandPrefix + "deepseek "},
+		{Name: "xai", Help: "Grok / xAI, base https://api.x.ai/v1", Insert: commandPrefix + "xai "},
+		{Name: "grok", Help: "alias for xai", Insert: commandPrefix + "grok "},
+		{Name: "groq", Help: "GroqCloud, not Grok", Insert: commandPrefix + "groq "},
+	})
+}
+
+func configuredProviderCompletions(prefix, commandPrefix string, cfg *config.Config) []SlashCommand {
+	items := []SlashCommand{}
+	names := make([]string, 0, len(cfg.Providers)+3)
+	for name := range cfg.Providers {
+		names = append(names, name)
+	}
+	names = append(names, "ollama", "llamacpp", "lmstudio")
+	sort.Strings(names)
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = normalizeProvider(name)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		items = append(items, SlashCommand{Name: name, Help: "provider", Insert: commandPrefix + name})
+	}
+	return filterCompletions(prefix, items)
 }
 
 func (m *Model) appendMsg(msg Message) {
@@ -488,7 +962,7 @@ func (m *Model) renderHeader() string {
 	logoStyled := StyleLogo.Render(Logo)
 	infoStyled := StyleHeaderInfo.Render(infoText)
 
-	pad := strings.Repeat(" ", maxInt(0, m.width-logoWidth-len(infoText)-2))
+	pad := strings.Repeat(" ", maxInt(2, m.width-logoWidth-len(infoText)-2))
 	right := infoStyled
 	headerLine := lipgloss.JoinHorizontal(lipgloss.Top, logoStyled, pad, right)
 	return StyleHeader.Width(m.width).Render(headerLine)

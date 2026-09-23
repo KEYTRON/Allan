@@ -19,11 +19,11 @@ const (
 )
 
 type Message struct {
-	Role       Role        `json:"role"`
-	Content    string      `json:"content"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	Name       string      `json:"name,omitempty"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
 }
 
 type ToolDef struct {
@@ -62,6 +62,15 @@ type Backend interface {
 }
 
 func New(cfg *config.Config) (Backend, error) {
+	if p, ok := cfg.Providers[cfg.Backend.Type]; ok {
+		model := cfg.Backend.Model
+		switch p.Type {
+		case "anthropic":
+			return NewAnthropic(p.APIKey, model, p.BaseURL), nil
+		case "openai":
+			return NewOpenAILike(cfg.Backend.Type, p.BaseURL, p.APIKey, model), nil
+		}
+	}
 	switch cfg.Backend.Type {
 	case "anthropic":
 		return NewAnthropic(cfg.Backend.APIKey, cfg.Backend.Model, cfg.Backend.BaseURL), nil

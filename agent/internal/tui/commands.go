@@ -3,27 +3,31 @@ package tui
 import "strings"
 
 type SlashCommand struct {
-	Name string
-	Help string
+	Name   string
+	Help   string
+	Insert string
 }
 
 var SlashCommands = []SlashCommand{
-	{"/help", "Список команд"},
-	{"/model", "Сменить модель: /model <name>"},
-	{"/backend", "Сменить бэкенд: /backend <name>"},
-	{"/tools", "Список доступных тулз"},
-	{"/memory", "Состояние памяти"},
-	{"/plan", "Текущий план агента (scratchpad)"},
-	{"/skills", "Список навыков (или show/delete/export)"},
-	{"/clear", "Очистить историю"},
-	{"/config", "Показать текущий конфиг"},
-	{"/quit", "Выход"},
+	{Name: "/help", Help: "Список команд"},
+	{Name: "/model", Help: "Выбрать модель: /model или /model <номер|provider/model>"},
+	{Name: "/api", Help: "API-ключи провайдеров: /api add|list|use|remove|refresh"},
+	{Name: "/backend", Help: "Сменить бэкенд: /backend <name>"},
+	{Name: "/tools", Help: "Список доступных тулз"},
+	{Name: "/memory", Help: "Состояние памяти"},
+	{Name: "/plan", Help: "Текущий план агента (scratchpad)"},
+	{Name: "/skills", Help: "Список навыков (или show/delete/export)"},
+	{Name: "/clear", Help: "Очистить историю"},
+	{Name: "/config", Help: "Показать текущий конфиг"},
+	{Name: "/quit", Help: "Выход"},
+	{Name: "/exit", Help: "Выход"},
 }
 
 func MatchSlash(prefix string) []SlashCommand {
 	var out []SlashCommand
 	for _, c := range SlashCommands {
 		if strings.HasPrefix(c.Name, prefix) {
+			c.Insert = c.Name + " "
 			out = append(out, c)
 		}
 	}

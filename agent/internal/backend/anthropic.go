@@ -34,13 +34,13 @@ func NewAnthropic(apiKey, model, baseURL string) *Anthropic {
 func (a *Anthropic) Name() string { return "anthropic" }
 
 type anthBlock struct {
-	Type    string         `json:"type"`
-	Text    string         `json:"text,omitempty"`
-	ID      string         `json:"id,omitempty"`
-	Name    string         `json:"name,omitempty"`
-	Input   map[string]any `json:"input,omitempty"`
-	ToolUseID string       `json:"tool_use_id,omitempty"`
-	Content string         `json:"content,omitempty"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
 }
 
 type anthMessage struct {
@@ -70,6 +70,14 @@ type anthResponse struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
+}
+
+type anthModelsResp struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+	HasMore bool   `json:"has_more"`
+	LastID  string `json:"last_id"`
 }
 
 func toAnthropicMessages(messages []Message) (system string, msgs []anthMessage) {
@@ -253,13 +261,42 @@ func (a *Anthropic) Stream(ctx context.Context, messages []Message, tools []Tool
 }
 
 func (a *Anthropic) Models(ctx context.Context) ([]string, error) {
-	return []string{
-		"claude-opus-4-7",
-		"claude-sonnet-4-6",
-		"claude-haiku-4-5-20251001",
-		"claude-3-5-sonnet-latest",
-		"claude-3-5-haiku-latest",
-	}, nil
+	var out []string
+	afterID := ""
+	for {
+		u := a.baseURL + "/v1/models?limit=1000"
+		if afterID != "" {
+			u += "&after_id=" + afterID
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		if err != nil {
+			return nil, err
+		}
+		a.headers(req)
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("anthropic models error %d: %s", resp.StatusCode, string(data))
+		}
+		var mr anthModelsResp
+		if err := json.Unmarshal(data, &mr); err != nil {
+			return nil, err
+		}
+		for _, model := range mr.Data {
+			if model.ID != "" {
+				out = append(out, model.ID)
+			}
+		}
+		if !mr.HasMore || mr.LastID == "" {
+			break
+		}
+		afterID = mr.LastID
+	}
+	return out, nil
 }
 
 func (a *Anthropic) Health(ctx context.Context) error {

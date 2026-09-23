@@ -1,4 +1,5 @@
 agent/bin/
+agent/allan
 *.exe
 *.test
 .DS_Store

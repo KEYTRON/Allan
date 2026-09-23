@@ -10,26 +10,33 @@ import (
 )
 
 type Config struct {
-	Agent   AgentConfig   `toml:"agent"`
-	Backend BackendConfig `toml:"backend"`
-	TUI     TUIConfig     `toml:"tui"`
-	Memory  MemoryConfig  `toml:"memory"`
-	Tools   ToolsConfig   `toml:"tools"`
+	Agent     AgentConfig               `toml:"agent"`
+	Backend   BackendConfig             `toml:"backend"`
+	Providers map[string]ProviderConfig `toml:"providers"`
+	TUI       TUIConfig                 `toml:"tui"`
+	Memory    MemoryConfig              `toml:"memory"`
+	Tools     ToolsConfig               `toml:"tools"`
 }
 
 type AgentConfig struct {
-	Workspace                string `toml:"workspace"`
-	MaxToolCalls             int    `toml:"max_tool_calls"`
-	ToolTimeout              int    `toml:"tool_timeout"`
-	ScratchpadEnabled        bool   `toml:"scratchpad_enabled"`
-	ScratchpadKeepLastResult int    `toml:"scratchpad_keep_last_results"`
-	SkillMinToolCalls        int    `toml:"skill_min_tool_calls"`
+	Workspace                string  `toml:"workspace"`
+	MaxToolCalls             int     `toml:"max_tool_calls"`
+	ToolTimeout              int     `toml:"tool_timeout"`
+	ScratchpadEnabled        bool    `toml:"scratchpad_enabled"`
+	ScratchpadKeepLastResult int     `toml:"scratchpad_keep_last_results"`
+	SkillMinToolCalls        int     `toml:"skill_min_tool_calls"`
 	SkillSimilarityThreshold float64 `toml:"skill_similarity_threshold"`
 }
 
 type BackendConfig struct {
 	Type    string `toml:"type"`
 	Model   string `toml:"model"`
+	BaseURL string `toml:"base_url"`
+	APIKey  string `toml:"api_key"`
+}
+
+type ProviderConfig struct {
+	Type    string `toml:"type"`
 	BaseURL string `toml:"base_url"`
 	APIKey  string `toml:"api_key"`
 }
@@ -81,6 +88,7 @@ func Default() *Config {
 			Type:  "ollama",
 			Model: "llama3.2",
 		},
+		Providers: map[string]ProviderConfig{},
 		TUI: TUIConfig{
 			Theme:          "dark",
 			ShowTimestamps: false,
@@ -155,6 +163,9 @@ func Load() (*Config, bool, error) {
 	cfg := Default()
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, false, fmt.Errorf("failed to decode config: %w", err)
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]ProviderConfig{}
 	}
 	return cfg, false, nil
 }

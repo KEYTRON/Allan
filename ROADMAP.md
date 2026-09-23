@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.1.0
+Stage: 0.2.0
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -23,8 +23,8 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 ## Models
 - [x] Anthropic, OpenAI, Ollama, llama.cpp and LM Studio backends
 - [x] Automatic selection of an available local backend
-- [ ] Provider keys right from the TUI (`/api`) and picking a model from a catalog in `/model`
-- [ ] Grok (xAI) as a provider
+- [x] Provider keys right from the TUI (`/api`) and picking a model from a catalog in `/model`
+- [x] Grok (xAI) as a provider
 
 ## Quality and releases
 - [ ] CI: build and tests on every push
