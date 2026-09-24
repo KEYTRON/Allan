@@ -260,6 +260,8 @@ func (m *Model) apiCompletions(input string) []SlashCommand {
 		}
 		return filterCompletions(prefix, []SlashCommand{
 			{Name: "add", Help: "добавить API-ключ", Insert: "/api add "},
+			{Name: "key", Help: "заменить ключ провайдера", Insert: "/api key "},
+			{Name: "endpoint", Help: "свой эндпоинт (base_url)", Insert: "/api endpoint "},
 			{Name: "list", Help: "показать сохранённые провайдеры", Insert: "/api list"},
 			{Name: "refresh", Help: "опросить модели всех провайдеров", Insert: "/api refresh"},
 			{Name: "use", Help: "сделать провайдера активным", Insert: "/api use "},
@@ -270,12 +272,12 @@ func (m *Model) apiCompletions(input string) []SlashCommand {
 	if len(parts) >= 2 {
 		sub = parts[1]
 	}
-	if sub == "add" && (len(parts) == 2 || (len(parts) == 3 && !endsWithSpace)) {
+	if (sub == "add" || sub == "key" || sub == "endpoint") && (len(parts) == 2 || (len(parts) == 3 && !endsWithSpace)) {
 		prefix := ""
 		if len(parts) == 3 {
 			prefix = parts[2]
 		}
-		return providerCompletions(prefix, "/api add ")
+		return providerCompletions(prefix, "/api "+sub+" ")
 	}
 	if (sub == "use" || sub == "remove" || sub == "delete" || sub == "rm") && (len(parts) == 2 || (len(parts) == 3 && !endsWithSpace)) {
 		prefix := ""
@@ -331,7 +333,7 @@ func (m *Model) submit(input string) tea.Cmd {
 
 func redactSensitiveInput(input string) string {
 	parts := strings.Fields(input)
-	if len(parts) >= 4 && parts[0] == "/api" && (parts[1] == "add" || parts[1] == "set") {
+	if len(parts) >= 4 && parts[0] == "/api" && (parts[1] == "add" || parts[1] == "set" || parts[1] == "key") {
 		parts[3] = "****"
 		return strings.Join(parts, " ")
 	}
@@ -518,13 +520,17 @@ func (m *Model) handleSkills(args []string) {
 func (m *Model) handleAPI(args []string) {
 	if len(args) == 0 {
 		m.appendMsg(Message{Kind: MsgSys, Text: strings.Join([]string{
-			"/api list",
-			"/api add <provider> <api_key> [base_url]",
+			"/api list — провайдеры, эндпоинты и где лежат ключи",
+			"/api add <provider> <api_key> [base_url] — ключ провайдера (и свой base_url)",
+			"/api key <provider> <api_key> — заменить только ключ",
+			"/api endpoint <name> <base_url> [openai|anthropic] — свой эндпоинт без ключа или смена base_url",
 			"/api use <provider>",
-			"/api remove <provider>",
+			"/api remove <provider> — удалить провайдер вместе с ключом",
 			"/api refresh",
 			"",
-			"Провайдеры: anthropic, openai, openrouter, deepseek, xai/grok, groq, ollama, llamacpp, lmstudio.",
+			"Ключ безопаснее вводить вне TUI: allan key set <provider> (скрытый ввод).",
+			"Ключи хранятся в " + m.secretsKind() + ", не в config.toml.",
+			"Провайдеры: " + strings.Join(knownCloudProviders(), ", ") + "; локальные: ollama, llamacpp, lmstudio.",
 		}, "\n")})
 		return
 	}
@@ -540,22 +546,42 @@ func (m *Model) handleAPI(args []string) {
 		base := ""
 		if len(args) >= 4 {
 			base = args[3]
-		} else {
-			base = defaultBaseURL(name)
 		}
-		if m.Cfg.Providers == nil {
-			m.Cfg.Providers = map[string]config.ProviderConfig{}
-		}
-		m.Cfg.Providers[name] = config.ProviderConfig{
-			Type:    providerType(name),
-			BaseURL: base,
-			APIKey:  args[2],
-		}
-		if err := config.Save(m.Cfg); err != nil {
+		if err := m.saveProvider(name, base, "", args[2], true); err != nil {
 			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
 			return
 		}
-		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("API-ключ для %s сохранён. Выполните /api refresh или /model, чтобы обновить список моделей.", name)})
+		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Ключ для %s сохранён в %s. Выполните /api refresh или /model, чтобы обновить список моделей.", name, m.secretsKind())})
+	case "key":
+		if len(args) < 3 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: "/api key <provider> <api_key>"})
+			return
+		}
+		name := normalizeProvider(args[1])
+		if err := m.saveProvider(name, "", "", args[2], true); err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+			return
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Ключ для %s обновлён (%s).", name, m.secretsKind())})
+	case "endpoint", "url":
+		if len(args) < 3 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: "/api endpoint <name> <base_url> [openai|anthropic]"})
+			return
+		}
+		name := normalizeProvider(args[1])
+		typ := ""
+		if len(args) >= 4 {
+			typ = strings.ToLower(args[3])
+			if typ != "openai" && typ != "anthropic" {
+				m.appendMsg(Message{Kind: MsgWarn, Text: "Тип эндпоинта: openai (OpenAI-совместимый) или anthropic"})
+				return
+			}
+		}
+		if err := m.saveProvider(name, args[2], typ, "", false); err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+			return
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Эндпоинт %s → %s сохранён. Ключ при необходимости: /api key %s <api_key>", name, args[2], name)})
 	case "use":
 		if len(args) < 2 {
 			m.appendMsg(Message{Kind: MsgWarn, Text: "/api use <provider>"})
@@ -580,19 +606,85 @@ func (m *Model) handleAPI(args []string) {
 		}
 		name := normalizeProvider(args[1])
 		delete(m.Cfg.Providers, name)
+		if m.Cfg.Secrets != nil {
+			if err := m.Cfg.Secrets.Delete(name); err != nil {
+				m.appendMsg(Message{Kind: MsgError, Text: "ключ не удалён: " + err.Error()})
+			}
+		}
+		if m.Cfg.Backend.Type == name {
+			m.Cfg.Backend.APIKey = ""
+		}
 		if err := config.Save(m.Cfg); err != nil {
 			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
 			return
 		}
-		m.appendMsg(Message{Kind: MsgSys, Text: "Провайдер удалён: " + name})
+		m.appendMsg(Message{Kind: MsgSys, Text: "Провайдер и его ключ удалены: " + name})
 	case "refresh":
 		if err := m.refreshModelCatalog(context.Background()); err != nil {
 			m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
 		}
 		m.appendMsg(Message{Kind: MsgSys, Text: m.renderModelCatalog()})
 	default:
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды /api: list, add, use, remove, refresh"})
+		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды /api: list, add, key, endpoint, use, remove, refresh"})
 	}
+}
+
+// saveProvider creates or updates a provider entry. Empty base/typ keep the
+// current value (or the preset default); the key goes to the secret store.
+func (m *Model) saveProvider(name, base, typ, key string, setKey bool) error {
+	if name == "" {
+		return fmt.Errorf("пустое имя провайдера")
+	}
+	if m.Cfg.Providers == nil {
+		m.Cfg.Providers = map[string]config.ProviderConfig{}
+	}
+	p := m.Cfg.Providers[name]
+	if base != "" {
+		p.BaseURL = strings.TrimRight(base, "/")
+	} else if p.BaseURL == "" {
+		p.BaseURL = defaultBaseURL(name)
+	}
+	if p.BaseURL == "" {
+		return fmt.Errorf("%s не входит в список известных провайдеров — укажите base_url: /api add %s <api_key> <base_url>", name, name)
+	}
+	if typ != "" {
+		p.Type = typ
+	} else if p.Type == "" {
+		p.Type = providerType(name)
+	}
+	if setKey {
+		if m.Cfg.Secrets == nil {
+			return fmt.Errorf("хранилище ключей не инициализировано")
+		}
+		if err := m.Cfg.Secrets.Set(name, key); err != nil {
+			return fmt.Errorf("не удалось сохранить ключ в %s: %w", m.Cfg.Secrets.Kind(), err)
+		}
+		p.APIKey = key
+	}
+	m.Cfg.Providers[name] = p
+	if m.Cfg.Backend.Type == name {
+		m.Cfg.Backend.BaseURL = p.BaseURL
+		m.Cfg.Backend.APIKey = p.APIKey
+	}
+	return config.Save(m.Cfg)
+}
+
+func (m *Model) secretsKind() string {
+	if m.Cfg.Secrets == nil {
+		return "не настроено"
+	}
+	return m.Cfg.Secrets.Kind()
+}
+
+func knownCloudProviders() []string {
+	out := []string{}
+	for name, p := range backend.ProviderPresets {
+		if !p.Local {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (m *Model) handleModel(args []string) {
@@ -616,6 +708,9 @@ func (m *Model) refreshModelCatalog(ctx context.Context) error {
 	failures := []string{}
 	providers := m.availableProviders()
 	for _, name := range providers {
+		if hugeCatalogProvider(name) {
+			continue
+		}
 		be, err := backendForProvider(name, m.Cfg, m.Cfg.Backend.Model)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
@@ -670,7 +765,7 @@ func (m *Model) availableProviders() []string {
 
 func (m *Model) renderModelCatalog() string {
 	if len(m.modelCatalog) == 0 {
-		return "Модели не найдены. Для API-провайдера добавьте ключ: /api add <provider> <api_key>"
+		return "Модели не найдены. Для API-провайдера добавьте ключ: /api add <provider> <api_key>" + m.hugeCatalogHint()
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Текущая модель: %s/%s\n\n", m.Cfg.Backend.Type, m.Cfg.Backend.Model))
@@ -687,12 +782,20 @@ func (m *Model) renderModelCatalog() string {
 		sb.WriteString(fmt.Sprintf("%s %2d. %s\n", mark, i+1, choice.Model))
 	}
 	sb.WriteString("\nВыбор: /model <номер> или /model <provider>/<model>")
+	sb.WriteString(m.hugeCatalogHint())
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m *Model) hugeCatalogHint() string {
+	if _, ok := m.Cfg.Providers["featherless"]; !ok {
+		return ""
+	}
+	return "\nfeatherless: каталог ~20 тыс. моделей в список не выводится, выбор по id: /model featherless/<owner>/<model> (список: featherless.ai/models)"
 }
 
 func (m *Model) renderProviders() string {
 	if len(m.Cfg.Providers) == 0 {
-		return "API-провайдеры не настроены. Добавить: /api add <provider> <api_key> [base_url]"
+		return "API-провайдеры не настроены. Добавить: /api add <provider> <api_key> [base_url]\nКлючи хранятся в " + m.secretsKind()
 	}
 	names := make([]string, 0, len(m.Cfg.Providers))
 	for name := range m.Cfg.Providers {
@@ -702,17 +805,18 @@ func (m *Model) renderProviders() string {
 	var sb strings.Builder
 	for _, name := range names {
 		p := m.Cfg.Providers[name]
-		key := "missing"
+		key := "нет"
 		if p.APIKey != "" {
-			key = "set"
+			key = "есть"
 		}
 		active := ""
 		if name == m.Cfg.Backend.Type {
 			active = " (active)"
 		}
-		sb.WriteString(fmt.Sprintf("%s%s: type=%s base_url=%s api_key=%s\n", name, active, p.Type, p.BaseURL, key))
+		sb.WriteString(fmt.Sprintf("%s%s: type=%s base_url=%s ключ=%s\n", name, active, p.Type, p.BaseURL, key))
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	sb.WriteString("\nКлючи хранятся в " + m.secretsKind())
+	return sb.String()
 }
 
 func (m *Model) resolveModelChoice(input string) (modelChoice, bool) {
@@ -777,8 +881,10 @@ func backendForProvider(provider string, cfg *config.Config, model string) (back
 		}
 		return backend.New(&tmp)
 	}
-	switch provider {
-	case "openrouter", "deepseek", "xai", "grok", "groq":
+	switch {
+	case !isKnownProvider(provider):
+		return nil, fmt.Errorf("неизвестный провайдер %s: добавьте эндпоинт /api endpoint %s <base_url>", provider, provider)
+	case !isLocalProvider(provider) && provider != "anthropic" && provider != "openai":
 		return nil, fmt.Errorf("%s требует API-ключ: /api add %s <api_key>", provider, provider)
 	default:
 		tmp := *cfg
@@ -792,56 +898,18 @@ func backendForProvider(provider string, cfg *config.Config, model string) (back
 	}
 }
 
-func normalizeProvider(name string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "grok" {
-		return "xai"
-	}
-	return name
+func normalizeProvider(name string) string { return backend.NormalizeProvider(name) }
+func providerType(name string) string      { return backend.ProviderType(name) }
+func defaultBaseURL(name string) string    { return backend.DefaultBaseURL(name) }
+func isKnownProvider(name string) bool     { return backend.IsKnownProvider(name) }
+
+// hugeCatalogProvider reports providers whose /models lists tens of thousands
+// of entries (Featherless mirrors most of Hugging Face), too many for /model.
+func hugeCatalogProvider(name string) bool {
+	return normalizeProvider(name) == "featherless"
 }
 
-func providerType(name string) string {
-	switch normalizeProvider(name) {
-	case "openrouter", "deepseek", "xai", "groq":
-		return "openai"
-	default:
-		return normalizeProvider(name)
-	}
-}
-
-func defaultBaseURL(name string) string {
-	switch normalizeProvider(name) {
-	case "openai":
-		return "https://api.openai.com/v1"
-	case "anthropic":
-		return "https://api.anthropic.com"
-	case "openrouter":
-		return "https://openrouter.ai/api/v1"
-	case "deepseek":
-		return "https://api.deepseek.com/v1"
-	case "xai":
-		return "https://api.x.ai/v1"
-	case "groq":
-		return "https://api.groq.com/openai/v1"
-	case "ollama":
-		return "http://localhost:11434/v1"
-	case "llamacpp":
-		return "http://localhost:8080/v1"
-	case "lmstudio":
-		return "http://localhost:1234/v1"
-	default:
-		return ""
-	}
-}
-
-func isLocalProvider(name string) bool {
-	switch normalizeProvider(name) {
-	case "ollama", "llamacpp", "lmstudio":
-		return true
-	default:
-		return false
-	}
-}
+func isLocalProvider(name string) bool { return backend.IsLocalProvider(name) }
 
 func filterCompletions(prefix string, items []SlashCommand) []SlashCommand {
 	if prefix == "" {
@@ -858,15 +926,19 @@ func filterCompletions(prefix string, items []SlashCommand) []SlashCommand {
 }
 
 func providerCompletions(prefix, commandPrefix string) []SlashCommand {
-	return filterCompletions(prefix, []SlashCommand{
-		{Name: "anthropic", Help: "Claude API, base https://api.anthropic.com", Insert: commandPrefix + "anthropic "},
-		{Name: "openai", Help: "OpenAI API, base https://api.openai.com/v1", Insert: commandPrefix + "openai "},
-		{Name: "openrouter", Help: "OpenRouter, OpenAI-compatible", Insert: commandPrefix + "openrouter "},
-		{Name: "deepseek", Help: "DeepSeek, OpenAI-compatible", Insert: commandPrefix + "deepseek "},
-		{Name: "xai", Help: "Grok / xAI, base https://api.x.ai/v1", Insert: commandPrefix + "xai "},
-		{Name: "grok", Help: "alias for xai", Insert: commandPrefix + "grok "},
-		{Name: "groq", Help: "GroqCloud, not Grok", Insert: commandPrefix + "groq "},
-	})
+	names := make([]string, 0, len(backend.ProviderPresets))
+	for name, p := range backend.ProviderPresets {
+		if !p.Local {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	items := make([]SlashCommand, 0, len(names))
+	for _, name := range names {
+		p := backend.ProviderPresets[name]
+		items = append(items, SlashCommand{Name: name, Help: p.Help + ", " + p.BaseURL, Insert: commandPrefix + name + " "})
+	}
+	return filterCompletions(prefix, items)
 }
 
 func configuredProviderCompletions(prefix, commandPrefix string, cfg *config.Config) []SlashCommand {

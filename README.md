@@ -62,14 +62,29 @@ ollama pull llama3.2
 - Tool-вызовы рендерятся как блоки с цветной полосой и статусом (`✓ done` / `✗ error` / `… running`)
 - Красивый Session Summary при выходе
 
+### API-ключи
+
+Ключи хранятся в системном keyring (Secret Service — KWallet / GNOME Keyring на Linux, Keychain на macOS, Credential Manager на Windows), в `~/.allan/config.toml` попадают только тип и `base_url`. Если keyring недоступен (сервер без D-Bus, SSH), ключи уходят в `~/.allan/secrets.json` с правами `0600`; принудительно — `ALLAN_SECRETS=file`. Ключи из старых конфигов переносятся в хранилище автоматически при запуске.
+
+```sh
+allan key set openrouter            # скрытый ввод ключа, не попадает в историю shell и TUI
+allan key set myllm https://host/v1 # свой OpenAI-совместимый эндпоинт
+allan key list
+allan key rm openrouter
+```
+
+Провайдеры из коробки: `openrouter`, `opencode` (OpenCode Zen), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
+
 ### Slash-команды
 
 | Команда | Описание |
 |---|---|
 | `/help` | Список команд |
 | `/model [номер\|provider/model\|name]` | Показать доступные модели или переключить модель |
-| `/api add <provider> <api_key> [base_url]` | Сохранить API-ключ провайдера (`xai`/`grok` для Grok) и включить его модели в `/model` |
-| `/api list` / `/api refresh` | Показать ключи провайдеров / заново опросить модели |
+| `/api add <provider> <api_key> [base_url]` | Сохранить API-ключ провайдера и включить его модели в `/model`. Облачные: `openrouter`, `ollama-cloud` (Ollama по ключу, локальный — `ollama`), `huggingface`/`hf`, `featherless` (id модели вручную: `/model featherless/<owner>/<model>`), `xai`/`grok`, `deepseek`, `groq` |
+| `/api key <provider> <api_key>` | Заменить ключ провайдера |
+| `/api endpoint <name> <base_url> [openai\|anthropic]` | Свой эндпоинт: другой base_url или сервер без ключа (например Ollama на другой машине) |
+| `/api list` / `/api refresh` | Показать провайдеры и наличие ключей / заново опросить модели |
 | `/backend [name]` | Сменить бэкенд (требует перезапуска) |
 | `/tools` | Список доступных тулз |
 | `/memory` | Состояние памяти |

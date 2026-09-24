@@ -1,15 +1,21 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/keytron/allan/agent/internal/secrets"
 )
 
 type Config struct {
+	// Secrets holds provider API keys. Keys are never written to config.toml:
+	// Load fills APIKey fields from here and Save strips them.
+	Secrets secrets.Store `toml:"-"`
+
 	Agent     AgentConfig               `toml:"agent"`
 	Backend   BackendConfig             `toml:"backend"`
 	Providers map[string]ProviderConfig `toml:"providers"`
@@ -32,13 +38,13 @@ type BackendConfig struct {
 	Type    string `toml:"type"`
 	Model   string `toml:"model"`
 	BaseURL string `toml:"base_url"`
-	APIKey  string `toml:"api_key"`
+	APIKey  string `toml:"api_key,omitempty"`
 }
 
 type ProviderConfig struct {
 	Type    string `toml:"type"`
 	BaseURL string `toml:"base_url"`
-	APIKey  string `toml:"api_key"`
+	APIKey  string `toml:"api_key,omitempty"`
 }
 
 type TUIConfig struct {
@@ -155,6 +161,7 @@ func Load() (*Config, bool, error) {
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		cfg := Default()
+		cfg.Secrets = secrets.Open(dir)
 		if err := Save(cfg); err != nil {
 			return nil, false, err
 		}
@@ -167,7 +174,49 @@ func Load() (*Config, bool, error) {
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]ProviderConfig{}
 	}
+	cfg.Secrets = secrets.Open(dir)
+	if err := cfg.loadSecrets(); err != nil {
+		return nil, false, err
+	}
 	return cfg, false, nil
+}
+
+// loadSecrets moves any plaintext api_key left in config.toml (older
+// versions stored them there) into the secret store, then fills APIKey
+// fields from the store for the running process.
+func (c *Config) loadSecrets() error {
+	migrated := false
+	for name, p := range c.Providers {
+		if p.APIKey != "" {
+			if err := c.Secrets.Set(name, p.APIKey); err != nil {
+				return fmt.Errorf("move %s key to %s: %w", name, c.Secrets.Kind(), err)
+			}
+			migrated = true
+			continue
+		}
+		key, err := c.Secrets.Get(name)
+		if err != nil && err != secrets.ErrNotFound {
+			return fmt.Errorf("read %s key from %s: %w", name, c.Secrets.Kind(), err)
+		}
+		p.APIKey = key
+		c.Providers[name] = p
+	}
+	if c.Backend.APIKey != "" {
+		if _, ok := c.Providers[c.Backend.Type]; !ok {
+			if err := c.Secrets.Set(c.Backend.Type, c.Backend.APIKey); err != nil {
+				return err
+			}
+		}
+		migrated = true
+	} else if p, ok := c.Providers[c.Backend.Type]; ok {
+		c.Backend.APIKey = p.APIKey
+	} else if key, err := c.Secrets.Get(c.Backend.Type); err == nil {
+		c.Backend.APIKey = key
+	}
+	if migrated {
+		return Save(c)
+	}
+	return nil
 }
 
 func Save(cfg *Config) error {
@@ -175,11 +224,17 @@ func Save(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
-	if err != nil {
+	// Encode a copy without keys: secrets live only in cfg.Secrets.
+	out := *cfg
+	out.Backend.APIKey = ""
+	out.Providers = make(map[string]ProviderConfig, len(cfg.Providers))
+	for name, p := range cfg.Providers {
+		p.APIKey = ""
+		out.Providers[name] = p
+	}
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(&out); err != nil {
 		return err
 	}
-	defer f.Close()
-	enc := toml.NewEncoder(f)
-	return enc.Encode(cfg)
+	return secrets.WriteFileAtomic(path, buf.Bytes(), 0o600)
 }

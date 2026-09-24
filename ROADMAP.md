@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.2.0
+Stage: 0.3.0
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -25,6 +25,9 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Automatic selection of an available local backend
 - [x] Provider keys right from the TUI (`/api`) and picking a model from a catalog in `/model`
 - [x] Grok (xAI) as a provider
+- [x] Cloud providers: OpenRouter, OpenCode Zen, Ollama Cloud (API key, separate from local Ollama), Hugging Face Inference Providers, Featherless.ai, Z.ai
+- [x] Keys in the system keyring (0600 file fallback), custom endpoints, `allan key` with hidden input
+- [ ] Test the agent on free models (OpenRouter free, Ollama Cloud Free): tool calls, long sessions
 
 ## Quality and releases
 - [ ] CI: build and tests on every push

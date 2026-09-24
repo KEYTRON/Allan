@@ -19,9 +19,12 @@ import (
 	"github.com/keytron/allan/agent/internal/vector"
 )
 
-var version = "0.2.0"
+var version = "0.3.0"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "key" {
+		os.Exit(runKey(os.Args[2:]))
+	}
 	var (
 		flBackend   = flag.String("backend", "", "Override backend from config (anthropic|openai|ollama|llamacpp|lmstudio)")
 		flModel     = flag.String("model", "", "Override model from config")
@@ -67,7 +70,9 @@ func main() {
 
 	// Auto-detect backend if no explicit choice and api keys missing
 	ctx := context.Background()
-	if *flBackend == "" && cfg.Backend.Type != "anthropic" && cfg.Backend.Type != "openai" {
+	// A configured API provider (openrouter, ollama-cloud, ...) is an explicit choice too.
+	_, configured := cfg.Providers[cfg.Backend.Type]
+	if *flBackend == "" && !configured && cfg.Backend.Type != "anthropic" && cfg.Backend.Type != "openai" {
 		if detected := backend.Detect(ctx); detected != "" {
 			cfg.Backend.Type = detected
 		}

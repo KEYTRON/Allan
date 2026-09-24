@@ -11,7 +11,7 @@ type SlashCommand struct {
 var SlashCommands = []SlashCommand{
 	{Name: "/help", Help: "Список команд"},
 	{Name: "/model", Help: "Выбрать модель: /model или /model <номер|provider/model>"},
-	{Name: "/api", Help: "API-ключи провайдеров: /api add|list|use|remove|refresh"},
+	{Name: "/api", Help: "API-ключи и эндпоинты: /api add|key|endpoint|list|use|remove|refresh"},
 	{Name: "/backend", Help: "Сменить бэкенд: /backend <name>"},
 	{Name: "/tools", Help: "Список доступных тулз"},
 	{Name: "/memory", Help: "Состояние памяти"},
