@@ -1,17 +1,19 @@
 module github.com/keytron/allan/agent
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.2.4
+	github.com/charmbracelet/glamour v0.8.0
 	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/charmbracelet/x/ansi v0.4.5
 	github.com/google/uuid v1.6.0
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/crypto v0.45.0
-	golang.org/x/term v0.37.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/term v0.43.0
 	modernc.org/sqlite v1.34.4
 )
 
@@ -21,8 +23,6 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/charmbracelet/glamour v0.8.0 // indirect
-	github.com/charmbracelet/x/ansi v0.4.5 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
@@ -47,10 +47,10 @@ require (
 	github.com/u-root/u-root v0.11.0 // indirect
 	github.com/yuin/goldmark v1.7.4 // indirect
 	github.com/yuin/goldmark-emoji v1.0.3 // indirect
-	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

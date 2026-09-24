@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.3.1
+Stage: 0.3.2
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
