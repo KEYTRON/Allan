@@ -69,6 +69,8 @@ func New(cfg *config.Config) (Backend, error) {
 			return NewAnthropic(p.APIKey, model, p.BaseURL), nil
 		case "openai":
 			return NewOpenAILike(cfg.Backend.Type, p.BaseURL, p.APIKey, model), nil
+		case "gigachat":
+			return NewGigaChat(p.BaseURL, p.APIKey, model), nil
 		}
 	}
 	switch cfg.Backend.Type {
@@ -80,6 +82,8 @@ func New(cfg *config.Config) (Backend, error) {
 			base = "https://api.openai.com/v1"
 		}
 		return NewOpenAILike("openai", base, cfg.Backend.APIKey, cfg.Backend.Model), nil
+	case "gigachat":
+		return NewGigaChat(cfg.Backend.BaseURL, cfg.Backend.APIKey, cfg.Backend.Model), nil
 	case "ollama":
 		base := cfg.Backend.BaseURL
 		if base == "" {

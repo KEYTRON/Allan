@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.3.3
+Stage: 0.3.4
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -29,6 +29,9 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Grok (xAI) as a provider
 - [x] Cloud providers: OpenRouter, OpenCode Zen, Ollama Cloud (API key, separate from local Ollama), Hugging Face Inference Providers, Featherless.ai, Z.ai
 - [x] Keys in the system keyring (0600 file fallback), custom endpoints, `allan key` with hidden input
+- [x] GigaChat (Sber): OAuth with the authorization key, bundled Russian Trusted Root CA, function calling
+- [x] Model caption under replies, `/compact` to summarize history
+- [ ] MCP support: connect MCP servers (stdio and HTTP) as agent tools
 - [ ] Test the agent on free models (OpenRouter free, Ollama Cloud Free): tool calls, long sessions
 
 ## Quality and releases

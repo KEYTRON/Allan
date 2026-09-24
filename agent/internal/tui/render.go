@@ -33,6 +33,7 @@ type Message struct {
 	Tool   string
 	Args   string
 	Status string // "running" | "done" | "error"
+	Meta   string // caption under a reply: model · time · tokens
 
 	// cache of the last render; cleared whenever the message changes
 	rendered  string
@@ -47,7 +48,11 @@ func renderMessage(m Message, width int) string {
 	case MsgYou:
 		return StyleUserBar.Width(width - 1).Render(wrap(m.Text, width-3))
 	case MsgAllan:
-		return prefixed(StyleDotAllan.Render("●"), renderMarkdown(m.Text, width-2), width)
+		out := prefixed(StyleDotAllan.Render("●"), renderMarkdown(m.Text, width-2), width)
+		if m.Meta != "" {
+			out += "\n  " + StyleDim.Render(m.Meta)
+		}
+		return out
 	case MsgToolBlock:
 		return renderToolBlock(m, width)
 	case MsgWarn:

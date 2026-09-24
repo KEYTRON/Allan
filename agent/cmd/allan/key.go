@@ -73,7 +73,14 @@ func runKey(args []string) int {
 		if p.Type == "" {
 			p.Type = backend.ProviderType(name)
 		}
-		key, err := readSecret(fmt.Sprintf("API-ключ для %s: ", name))
+		prompt := fmt.Sprintf("API-ключ для %s: ", name)
+		switch name {
+		case "huggingface":
+			prompt = "Токен Hugging Face (hf_…, huggingface.co/settings/tokens): "
+		case "gigachat":
+			prompt = "Ключ авторизации GigaChat (developers.sber.ru/studio → API-ключи; не Client Secret): "
+		}
+		key, err := readSecret(prompt)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ввод ключа: %v\n", err)
 			return 1

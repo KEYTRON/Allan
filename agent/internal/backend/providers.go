@@ -20,8 +20,9 @@ var ProviderPresets = map[string]ProviderPreset{
 	"groq":         {Type: "openai", BaseURL: "https://api.groq.com/openai/v1", Help: "GroqCloud, не Grok"},
 	"zai":          {Type: "openai", BaseURL: "https://api.z.ai/api/paas/v4", Help: "Z.ai (GLM), оплата по токенам"},
 	"zai-coding":   {Type: "openai", BaseURL: "https://api.z.ai/api/coding/paas/v4", Help: "Z.ai GLM Coding Plan"},
+	"gigachat":     {Type: "gigachat", BaseURL: GigaChatBaseURL, Help: "GigaChat (Сбер); ключ — «ключ авторизации» из личного кабинета, OAuth и сертификат Минцифры Allan берёт на себя"},
 	"ollama-cloud": {Type: "openai", BaseURL: "https://ollama.com/v1", Help: "Ollama Cloud по API-ключу"},
-	"huggingface":  {Type: "openai", BaseURL: "https://router.huggingface.co/v1", Help: "Hugging Face Inference Providers"},
+	"huggingface":  {Type: "openai", BaseURL: "https://router.huggingface.co/v1", Help: "Hugging Face Inference Providers; ключ — токен hf_… с правом «Make calls to Inference Providers»"},
 	"featherless":  {Type: "openai", BaseURL: "https://api.featherless.ai/v1", Help: "Featherless.ai, ~20 тыс. моделей с HF"},
 	"ollama":       {Type: "ollama", BaseURL: "http://localhost:11434/v1", Help: "локальный Ollama", Local: true},
 	"llamacpp":     {Type: "llamacpp", BaseURL: "http://localhost:8080/v1", Help: "локальный llama.cpp server", Local: true},
@@ -35,6 +36,8 @@ var providerAliases = map[string]string{
 	"ollama_cloud": "ollama-cloud",
 	"zen":          "opencode",
 	"glm":          "zai",
+	"giga":         "gigachat",
+	"sber":         "gigachat",
 }
 
 func NormalizeProvider(name string) string {

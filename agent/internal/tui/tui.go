@@ -2,9 +2,9 @@ package tui
 
 import (
 	"context"
-	"regexp"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,8 +55,11 @@ type Model struct {
 	popupNavigated bool // arrows were used, so Enter takes the highlighted item
 	picker         *picker
 	cancelRun      context.CancelFunc
+	thinkingLabel  string
+	turnTokens     int       // Stats tokens when the current turn started
+	turnModel      string    // provider/model that answers the current turn
 	quitArmedAt    time.Time // first Ctrl+C on an empty input; a second one quits
-	modelCatalog  []modelChoice
+	modelCatalog   []modelChoice
 
 	focus     FocusMode
 	ptyActive bool
@@ -146,6 +149,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case agentEventMsg:
 		m.handleAgentEvent(msg.ev)
+	case compactDoneMsg:
+		m.thinking = false
+		if msg.err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: "/compact: " + humanError(msg.err.Error())})
+		} else {
+			m.appendMsg(Message{Kind: MsgSys, Text: "История сжата. Модель дальше видит эту сводку:"})
+			m.appendMsg(Message{Kind: MsgAllan, Text: msg.summary, Meta: m.turnMeta()})
+		}
 	case agentDoneMsg:
 		m.thinking = false
 		if m.cancelRun != nil {
@@ -423,6 +434,9 @@ func (m *Model) submit(input string) tea.Cmd {
 
 	m.thinking = true
 	m.thinkingSince = time.Now()
+	m.thinkingLabel = "Allan думает"
+	m.turnTokens = m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut
+	m.turnModel = m.Cfg.Backend.Model
 	m.recalcLayout()
 	events := make(chan agent.Event, 32)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -488,13 +502,17 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 		}
 	case "final":
 		if ev.Text != "" {
-			m.appendMsg(Message{Kind: MsgAllan, Text: ev.Text})
+			m.appendMsg(Message{Kind: MsgAllan, Text: ev.Text, Meta: m.turnMeta()})
 		}
 	case "warn":
 		if strings.Contains(ev.Text, "context canceled") {
 			break // the user pressed Esc; "Остановлено" is already shown
 		}
-		m.appendMsg(Message{Kind: MsgWarn, Text: humanError(ev.Text)})
+		text := humanError(ev.Text)
+		if strings.Contains(ev.Text, "402") && m.Cfg.Backend.Type == "ollama" {
+			text += "\nЭта облачная модель платная на вашем тарифе Ollama — выберите другую: /model"
+		}
+		m.appendMsg(Message{Kind: MsgWarn, Text: text})
 	case "skill_saved":
 		if ev.Skill != nil {
 			m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Навык сохранён: %q (/skills чтобы посмотреть)", ev.Skill.Name)})
@@ -515,6 +533,8 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		m.appendMsg(Message{Kind: MsgSys, Text: helpText()})
 	case "/quit", "/exit":
 		return tea.Quit
+	case "/compact":
+		return m.startCompact()
 	case "/clear":
 		m.messages = nil
 		m.Ag.ClearHistory()
@@ -1118,7 +1138,7 @@ func (m *Model) refreshContent() {
 	}
 	if m.thinking {
 		elapsed := time.Since(m.thinkingSince).Round(time.Second)
-		blocks = append(blocks, m.spinner.View()+" "+StyleMuted.Render(fmt.Sprintf("Allan думает… %s · Esc — остановить", elapsed)))
+		blocks = append(blocks, m.spinner.View()+" "+StyleMuted.Render(fmt.Sprintf("%s… %s · %s · Esc — остановить", m.thinkingLabel, elapsed, m.Cfg.Backend.Model)))
 	}
 	follow := m.viewport.AtBottom() || m.viewport.TotalLineCount() == 0
 	m.viewport.SetContent(indent(strings.Join(blocks, "\n\n"), " "))
@@ -1405,4 +1425,45 @@ func humanError(text string) string {
 	}
 	prefix = strings.TrimPrefix(prefix, "backend error: ")
 	return prefix + ": " + msg
+}
+
+// Notice shows a system line under the welcome card (used for startup warnings).
+func (m *Model) Notice(text string) {
+	m.appendMsg(Message{Kind: MsgWarn, Text: text})
+}
+
+type compactDoneMsg struct {
+	summary string
+	err     error
+}
+
+// startCompact summarizes the history in the background with the spinner on.
+func (m *Model) startCompact() tea.Cmd {
+	if m.thinking {
+		return nil
+	}
+	m.thinking = true
+	m.thinkingSince = time.Now()
+	m.thinkingLabel = "Сжимаю историю"
+	m.turnTokens = m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut
+	m.turnModel = m.Cfg.Backend.Model
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.recalcLayout()
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		summary, err := m.Ag.Compact(ctx)
+		return compactDoneMsg{summary, err}
+	})
+}
+
+// turnMeta captions a reply with the model that wrote it, time and tokens.
+func (m *Model) turnMeta() string {
+	parts := []string{m.turnModel}
+	if !m.thinkingSince.IsZero() {
+		parts = append(parts, time.Since(m.thinkingSince).Round(100*time.Millisecond).String())
+	}
+	if used := m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut - m.turnTokens; used > 0 {
+		parts = append(parts, humanTokens(used)+" токенов")
+	}
+	return strings.Join(parts, " · ")
 }

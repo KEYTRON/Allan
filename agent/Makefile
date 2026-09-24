@@ -1,6 +1,6 @@
 BINARY := bin/allan
 PKG := ./cmd/allan
-VERSION := 0.3.3
+VERSION := 0.3.4
 
 .PHONY: build run install test clean tidy fmt vet
 

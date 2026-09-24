@@ -78,7 +78,7 @@ allan key list
 allan key rm openrouter
 ```
 
-Провайдеры из коробки: `openrouter`, `opencode` (OpenCode Zen), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
+Провайдеры из коробки: `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
 
 ### Slash-команды
 

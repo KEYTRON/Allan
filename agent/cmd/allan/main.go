@@ -20,7 +20,7 @@ import (
 	"github.com/keytron/allan/agent/internal/vector"
 )
 
-var version = "0.3.3"
+var version = "0.3.4"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -91,10 +91,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "backend: %v\n", err)
 		os.Exit(1)
 	}
+	startupNote := ""
 	if *flModel == "" && backend.IsLocalProvider(cfg.Backend.Type) {
 		if picked := pickInstalledModel(ctx, be, cfg.Backend.Model); picked != "" && picked != cfg.Backend.Model {
+			missing := cfg.Backend.Model
 			cfg.Backend.Model = picked
-			_ = config.Save(cfg)
+			if missing == config.Default().Backend.Model {
+				// The stock default was never chosen by the user: replace it for good.
+				_ = config.Save(cfg)
+			} else {
+				// Keep the user's choice in the config; only this run uses a stand-in.
+				startupNote = fmt.Sprintf("Модели %s нет в %s, на этот запуск выбрана %s. Выбрать другую: /model", missing, cfg.Backend.Type, picked)
+				startupNote += fmt.Sprintf(" (если она нужна: ollama pull %s)", missing)
+			}
 			if be, err = backend.New(cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "backend: %v\n", err)
 				os.Exit(1)
@@ -178,6 +187,9 @@ func main() {
 
 	startedAt := time.Now()
 	model := tui.New(cfg, ag, workspace, version)
+	if startupNote != "" {
+		model.Notice(startupNote)
+	}
 	if err := tui.Run(model); err != nil {
 		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
 	}
