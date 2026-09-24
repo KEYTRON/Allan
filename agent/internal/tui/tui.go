@@ -2,12 +2,14 @@ package tui
 
 import (
 	"context"
+	"regexp"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -19,6 +21,10 @@ import (
 	"github.com/keytron/allan/agent/internal/agent"
 	"github.com/keytron/allan/agent/internal/backend"
 )
+
+// bubbles/textarea draws the cursor over the placeholder's first byte,
+// which garbles a leading Cyrillic letter, so it starts with ASCII.
+const inputPlaceholder = "/ — команды, или просто напишите задачу"
 
 type FocusMode int
 
@@ -43,9 +49,13 @@ type Model struct {
 	history    []string
 	historyIdx int
 
-	popupOpen     bool
-	popupItems    []SlashCommand
-	popupSelected int
+	popupOpen      bool
+	popupItems     []SlashCommand
+	popupSelected  int
+	popupNavigated bool // arrows were used, so Enter takes the highlighted item
+	picker         *picker
+	cancelRun      context.CancelFunc
+	quitArmedAt    time.Time // first Ctrl+C on an empty input; a second one quits
 	modelCatalog  []modelChoice
 
 	focus     FocusMode
@@ -66,9 +76,7 @@ type modelChoice struct {
 
 func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model {
 	ta := textarea.New()
-	// bubbles/textarea draws the cursor over the placeholder's first byte,
-	// which garbles a leading Cyrillic letter, so it starts with ASCII.
-	ta.Placeholder = "/ — команды, или просто напишите задачу"
+	ta.Placeholder = inputPlaceholder
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
 	ta.Prompt = ""
@@ -129,13 +137,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.recalcLayout()
 	case tea.KeyMsg:
-		if cmd := m.handleKey(msg); cmd != nil {
+		if isMouseGarbage(msg) {
+			return m, nil
+		}
+		if cmd, consumed := m.handleKey(msg); consumed {
+			m.recalcLayout()
 			return m, cmd
 		}
 	case agentEventMsg:
 		m.handleAgentEvent(msg.ev)
 	case agentDoneMsg:
 		m.thinking = false
+		if m.cancelRun != nil {
+			m.cancelRun()
+			m.cancelRun = nil
+		}
 		m.recalcLayout()
 	case tickMsg:
 		// future PTY tick
@@ -152,7 +168,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
-		m.updatePopup()
+		if m.picker != nil {
+			m.picker.filter(m.textarea.Value())
+		} else {
+			m.updatePopup()
+		}
 		m.recalcLayout()
 	}
 	var cmd tea.Cmd
@@ -161,87 +181,143 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
+// handleKey processes navigation and submit keys. consumed=false passes the
+// key on to the input box.
+func (m *Model) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if msg.Type == tea.KeyCtrlC {
+		switch {
+		case m.picker != nil:
+			m.closePicker()
+		case m.textarea.Value() != "":
+			m.textarea.SetValue("")
+			m.popupOpen = false
+		case time.Since(m.quitArmedAt) < 2*time.Second:
+			return tea.Quit, true
+		default:
+			m.quitArmedAt = time.Now()
+			m.appendMsg(Message{Kind: MsgSys, Text: "Нажмите Ctrl+C ещё раз, чтобы выйти"})
+		}
+		return nil, true
+	}
+	if msg.Type == tea.KeyEsc && m.thinking && m.cancelRun != nil {
+		m.cancelRun()
+		m.appendMsg(Message{Kind: MsgWarn, Text: "Остановлено"})
+		return nil, true
+	}
+	if m.picker != nil {
+		return m.pickerKey(msg)
+	}
 	switch msg.Type {
-	case tea.KeyCtrlC:
-		return tea.Quit
 	case tea.KeyEsc:
 		if m.popupOpen {
 			m.popupOpen = false
-			return nil
+			return nil, true
 		}
 	case tea.KeyTab:
-		if m.popupOpen {
-			if len(m.popupItems) > 0 {
-				insert := m.popupItems[m.popupSelected].Insert
-				if insert == "" {
-					insert = m.popupItems[m.popupSelected].Name + " "
-				}
-				m.textarea.SetValue(insert)
-				m.textarea.SetCursor(len(insert))
-				m.popupOpen = false
-			}
-			return nil
+		if m.popupOpen && len(m.popupItems) > 0 {
+			m.insertCompletion(m.popupItems[m.popupSelected])
+			return nil, true
 		}
-		// PTY focus toggle
 		if m.ptyActive {
 			if m.focus == FocusTUI {
 				m.focus = FocusPTY
 			} else {
 				m.focus = FocusTUI
 			}
-			return nil
+			return nil, true
 		}
-	case tea.KeyUp:
+	case tea.KeyUp, tea.KeyShiftTab:
 		if m.popupOpen {
-			if m.popupSelected > 0 {
-				m.popupSelected--
-			}
-			return nil
+			m.popupSelected = (m.popupSelected - 1 + len(m.popupItems)) % len(m.popupItems)
+			m.popupNavigated = true
+			return nil, true
 		}
-		if !m.thinking && len(m.history) > 0 {
-			if m.historyIdx > 0 {
-				m.historyIdx--
-				m.textarea.SetValue(m.history[m.historyIdx])
-			}
-			return nil
+		if msg.Type == tea.KeyUp && !m.thinking && len(m.history) > 0 && m.historyIdx > 0 {
+			m.historyIdx--
+			m.textarea.SetValue(m.history[m.historyIdx])
+			return nil, true
 		}
 	case tea.KeyDown:
 		if m.popupOpen {
-			if m.popupSelected < len(m.popupItems)-1 {
-				m.popupSelected++
-			}
-			return nil
+			m.popupSelected = (m.popupSelected + 1) % len(m.popupItems)
+			m.popupNavigated = true
+			return nil, true
 		}
-		if !m.thinking && len(m.history) > 0 {
-			if m.historyIdx < len(m.history)-1 {
-				m.historyIdx++
-				m.textarea.SetValue(m.history[m.historyIdx])
-			} else {
-				m.historyIdx = len(m.history)
+		if !m.thinking && len(m.history) > 0 && m.historyIdx < len(m.history) {
+			m.historyIdx++
+			if m.historyIdx == len(m.history) {
 				m.textarea.SetValue("")
+			} else {
+				m.textarea.SetValue(m.history[m.historyIdx])
 			}
-			return nil
+			return nil, true
 		}
 	case tea.KeyEnter:
 		if m.thinking {
-			return nil
+			return nil, true
 		}
-		val := strings.TrimSpace(m.textarea.Value())
+		val := normalizeSpaces(strings.TrimSpace(m.textarea.Value()))
+		if m.popupOpen && len(m.popupItems) > 0 {
+			item := m.popupItems[m.popupSelected]
+			if m.popupNavigated || isPartialCommand(val, item) {
+				if strings.HasSuffix(item.Insert, " ") && !strings.HasPrefix(item.Name, "/") {
+					// Subcommand that needs arguments: complete it, don't run it.
+					m.insertCompletion(item)
+					return nil, true
+				}
+				val = strings.TrimSpace(item.Insert)
+				if val == "" {
+					val = item.Name
+				}
+			}
+		}
 		if val == "" {
-			return nil
+			return nil, true
 		}
 		m.textarea.SetValue("")
 		m.popupOpen = false
+		m.popupNavigated = false
 		m.history = append(m.history, redactSensitiveInput(val))
 		m.historyIdx = len(m.history)
-		return m.submit(val)
+		return m.submit(val), true
 	}
-	return nil
+	return nil, false
+}
+
+func (m *Model) insertCompletion(item SlashCommand) {
+	insert := item.Insert
+	if insert == "" {
+		insert = item.Name + " "
+	}
+	m.textarea.SetValue(insert)
+	m.textarea.CursorEnd()
+	m.popupOpen = false
+	m.popupNavigated = false
+}
+
+// isPartialCommand reports that the user typed only the start of a top-level
+// command ("/mo" for "/model"), so Enter should run the suggestion.
+func isPartialCommand(val string, item SlashCommand) bool {
+	return strings.HasPrefix(item.Name, "/") && !strings.Contains(val, " ") &&
+		val != item.Name && strings.HasPrefix(item.Name, val)
+}
+
+// normalizeSpaces turns non-breaking and zero-width spaces (they sneak in
+// with pasted text) into plain spaces, so "/model 4" always splits.
+func normalizeSpaces(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\u200b' || r == '\u2060' || r == '\ufeff':
+			return ' '
+		case unicode.IsSpace(r):
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 func (m *Model) updatePopup() {
-	if m.thinking {
+	if m.thinking || m.picker != nil {
 		m.popupOpen = false
 		return
 	}
@@ -249,6 +325,9 @@ func (m *Model) updatePopup() {
 	if strings.HasPrefix(val, "/") {
 		matches := m.completionsFor(val)
 		if len(matches) > 0 {
+			if !m.popupOpen || len(matches) != len(m.popupItems) {
+				m.popupNavigated = false
+			}
 			m.popupOpen = true
 			m.popupItems = matches
 			if m.popupSelected >= len(matches) {
@@ -346,7 +425,8 @@ func (m *Model) submit(input string) tea.Cmd {
 	m.thinkingSince = time.Now()
 	m.recalcLayout()
 	events := make(chan agent.Event, 32)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
 	go m.Ag.Run(ctx, input, events)
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
@@ -397,6 +477,7 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 		for i := len(m.messages) - 1; i >= 0; i-- {
 			if m.messages[i].Kind == MsgToolBlock && m.messages[i].Tool == ev.Tool && m.messages[i].Status == "running" {
 				m.messages[i].Text = ev.Result
+				m.messages[i].rendered = ""
 				if ev.IsError {
 					m.messages[i].Status = "error"
 				} else {
@@ -410,7 +491,10 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 			m.appendMsg(Message{Kind: MsgAllan, Text: ev.Text})
 		}
 	case "warn":
-		m.appendMsg(Message{Kind: MsgWarn, Text: ev.Text})
+		if strings.Contains(ev.Text, "context canceled") {
+			break // the user pressed Esc; "Остановлено" is already shown
+		}
+		m.appendMsg(Message{Kind: MsgWarn, Text: humanError(ev.Text)})
 	case "skill_saved":
 		if ev.Skill != nil {
 			m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Навык сохранён: %q (/skills чтобы посмотреть)", ev.Skill.Name)})
@@ -420,7 +504,10 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 }
 
 func (m *Model) handleSlash(input string) tea.Cmd {
-	parts := strings.Fields(input)
+	parts := strings.Fields(normalizeSpaces(input))
+	if len(parts) == 0 {
+		return nil
+	}
 	cmd := parts[0]
 	args := parts[1:]
 	switch cmd {
@@ -465,7 +552,7 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		m.handleModel(args)
 	case "/backend":
 		if len(args) == 0 {
-			m.appendMsg(Message{Kind: MsgSys, Text: "Текущий бэкенд: " + m.Cfg.Backend.Type})
+			m.openProviderPicker()
 			return nil
 		}
 		m.appendMsg(Message{Kind: MsgWarn, Text: "Смена бэкенда требует перезапуска. Установлено в конфиге: " + args[0]})
@@ -608,7 +695,7 @@ func (m *Model) handleAPI(args []string) {
 		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Эндпоинт %s → %s сохранён. Ключ при необходимости: /api key %s <api_key>", name, args[2], name)})
 	case "use":
 		if len(args) < 2 {
-			m.appendMsg(Message{Kind: MsgWarn, Text: "/api use <provider>"})
+			m.openProviderPicker()
 			return
 		}
 		name := normalizeProvider(args[1])
@@ -713,10 +800,7 @@ func knownCloudProviders() []string {
 
 func (m *Model) handleModel(args []string) {
 	if len(args) == 0 {
-		if err := m.refreshModelCatalog(context.Background()); err != nil {
-			m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
-		}
-		m.appendMsg(Message{Kind: MsgSys, Text: m.renderModelCatalog()})
+		m.openModelPicker("")
 		return
 	}
 	choice, ok := m.resolveModelChoice(strings.Join(args, " "))
@@ -987,6 +1071,9 @@ func configuredProviderCompletions(prefix, commandPrefix string, cfg *config.Con
 
 func (m *Model) appendMsg(msg Message) {
 	m.messages = append(m.messages, msg)
+	if msg.Kind == MsgYou {
+		m.viewport.GotoBottom() // own input always brings the chat back down
+	}
 	m.recalcLayout()
 }
 
@@ -1001,27 +1088,43 @@ func (m *Model) recalcLayout() {
 	inputH := lipgloss.Height(m.renderInput())
 	statusH := 1
 	popupH := 0
-	if m.popupOpen {
+	switch {
+	case m.picker != nil:
+		popupH = lipgloss.Height(m.renderPicker())
+	case m.popupOpen:
 		popupH = lipgloss.Height(m.renderPopup())
 	}
 	m.viewport.Width = m.width
 	m.viewport.Height = maxInt(3, m.height-headerH-inputH-statusH-popupH)
+	m.refreshContent()
+}
 
+// refreshContent rebuilds the chat text from cached renders. It follows new
+// output only when the view was already at the bottom, so scrolling up to
+// read history is not undone by the next keypress or spinner tick.
+func (m *Model) refreshContent() {
 	w := maxInt(20, m.width-2)
 	blocks := make([]string, 0, len(m.messages)+1)
-	for _, msg := range m.messages {
+	for i := range m.messages {
+		msg := &m.messages[i]
 		if msg.Kind == MsgWelcome {
 			blocks = append(blocks, m.renderWelcome(w))
 			continue
 		}
-		blocks = append(blocks, renderMessage(msg, w))
+		if msg.rendered == "" || msg.renderedW != w {
+			msg.rendered, msg.renderedW = renderMessage(*msg, w), w
+		}
+		blocks = append(blocks, msg.rendered)
 	}
 	if m.thinking {
 		elapsed := time.Since(m.thinkingSince).Round(time.Second)
-		blocks = append(blocks, m.spinner.View()+" "+StyleMuted.Render(fmt.Sprintf("Allan думает… %s", elapsed)))
+		blocks = append(blocks, m.spinner.View()+" "+StyleMuted.Render(fmt.Sprintf("Allan думает… %s · Esc — остановить", elapsed)))
 	}
+	follow := m.viewport.AtBottom() || m.viewport.TotalLineCount() == 0
 	m.viewport.SetContent(indent(strings.Join(blocks, "\n\n"), " "))
-	m.viewport.GotoBottom()
+	if follow {
+		m.viewport.GotoBottom()
+	}
 }
 
 // inputLines grows the input box with its content, up to 6 lines.
@@ -1039,7 +1142,10 @@ func (m *Model) View() string {
 		return "Загрузка…"
 	}
 	parts := []string{m.renderHeader(), m.viewport.View()}
-	if m.popupOpen {
+	switch {
+	case m.picker != nil:
+		parts = append(parts, m.renderPicker())
+	case m.popupOpen:
 		parts = append(parts, m.renderPopup())
 	}
 	parts = append(parts, m.renderInput(), m.renderStatus())
@@ -1077,12 +1183,13 @@ func (m *Model) renderWelcome(width int) string {
 		row("папка", abbrevPath(m.Workspace)),
 		row("ключи API", keys),
 		"",
-		tip("/model", "выбрать модель из каталога"),
+		tip("/model", "выбрать модель: ↑↓, поиск, Enter"),
 		tip("/api", "ключи провайдеров и свои эндпоинты"),
 		tip("/help", "все команды"),
-		tip("Tab", "автодополнение команд"),
-		tip("↑ ↓", "история ввода"),
-		tip("Ctrl+C", "выход"),
+		tip("Tab", "дополнить команду"),
+		tip("↑ ↓", "подсказки и история ввода"),
+		tip("Esc", "остановить агента"),
+		tip("Ctrl+C ×2", "выход"),
 	}
 	card := StyleWelcome.Render(strings.Join(lines, "\n"))
 	if lipgloss.Width(card) > width {
@@ -1197,4 +1304,105 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// openModelPicker lists every model of every reachable provider. With
+// provider set, the list is limited to it (used after picking a provider).
+func (m *Model) openModelPicker(provider string) {
+	if err := m.refreshModelCatalog(context.Background()); err != nil && len(m.modelCatalog) == 0 {
+		m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
+		return
+	}
+	items := make([]pickItem, 0, len(m.modelCatalog))
+	for _, c := range m.modelCatalog {
+		if provider != "" && c.Provider != provider {
+			continue
+		}
+		low := strings.ToLower(c.Model)
+		aux := strings.Contains(low, "embed") || strings.Contains(low, "ocr") || strings.Contains(low, "rerank")
+		detail := ""
+		if aux {
+			detail = "не для чата"
+		} else if strings.HasSuffix(low, ":cloud") || strings.HasSuffix(low, "-cloud") {
+			detail = "облако Ollama"
+		} else if strings.HasSuffix(low, "-free") || strings.HasSuffix(low, ":free") {
+			detail = "бесплатно"
+		}
+		items = append(items, pickItem{
+			Label:   c.Model,
+			Group:   c.Provider,
+			Detail:  detail,
+			Current: c.Provider == m.Cfg.Backend.Type && c.Model == m.Cfg.Backend.Model,
+			Dim:     aux,
+			Value:   c,
+		})
+	}
+	if len(items) == 0 {
+		m.appendMsg(Message{Kind: MsgWarn, Text: "Модели не найдены. Добавьте ключ: /api add <provider> <api_key>" + m.hugeCatalogHint()})
+		return
+	}
+	title := "Выбор модели"
+	if provider != "" {
+		title += " · " + provider
+	}
+	m.openPicker(newPicker(title, items, func(it pickItem) tea.Cmd {
+		c := it.Value.(modelChoice)
+		m.switchBackendModel(c.Provider, c.Model)
+		return nil
+	}))
+}
+
+// openProviderPicker lists configured and local providers; picking one
+// opens its model list.
+func (m *Model) openProviderPicker() {
+	items := []pickItem{}
+	for _, name := range m.availableProviders() {
+		detail := "локальный"
+		if p, ok := m.Cfg.Providers[name]; ok {
+			detail = p.BaseURL
+			if p.APIKey == "" && !isLocalProvider(name) {
+				detail += " · без ключа"
+			}
+		}
+		items = append(items, pickItem{Label: name, Detail: detail, Current: name == m.Cfg.Backend.Type, Value: name})
+	}
+	m.openPicker(newPicker("Выбор провайдера", items, func(it pickItem) tea.Cmd {
+		name := it.Value.(string)
+		if hugeCatalogProvider(name) {
+			m.appendMsg(Message{Kind: MsgSys, Text: m.hugeCatalogHint()})
+			return nil
+		}
+		m.openModelPicker(name)
+		return nil
+	}))
+}
+
+// mouseSeq matches pieces of SGR mouse reports ("\x1b[<65;72;16M"). If the
+// terminal splits a report across reads, the tail can arrive as plain key
+// runes; those must not end up in the input box.
+var mouseSeq = regexp.MustCompile(`^(\x1b)?\[?<?(\d+;\d+;\d+[Mm])+$|^(\[?<\d+;\d+;\d+[Mm])+`)
+
+func isMouseGarbage(msg tea.KeyMsg) bool {
+	if msg.Type != tea.KeyRunes || msg.Paste {
+		return false
+	}
+	return mouseSeq.MatchString(string(msg.Runes))
+}
+
+var apiErrMessage = regexp.MustCompile(`"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+
+// humanError cuts the JSON envelope out of provider errors:
+// `backend ollama error 402: {"error":{"message":"..."}}` → `ollama 402: ...`.
+func humanError(text string) string {
+	sub := apiErrMessage.FindStringSubmatch(text)
+	if sub == nil {
+		return text
+	}
+	msg := strings.ReplaceAll(sub[1], `\"`, `"`)
+	prefix := text
+	if i := strings.Index(text, "{"); i > 0 {
+		prefix = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text[:i]), ":"))
+	}
+	prefix = strings.TrimPrefix(prefix, "backend error: ")
+	return prefix + ": " + msg
 }

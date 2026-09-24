@@ -13,9 +13,9 @@ type SlashCommand struct {
 
 var SlashCommands = []SlashCommand{
 	{Name: "/help", Help: "Список команд"},
-	{Name: "/model", Help: "Выбрать модель: /model или /model <номер|provider/model>"},
+	{Name: "/model", Help: "Выбрать модель из списка (↑↓, поиск, Enter) или /model <provider/model>"},
 	{Name: "/api", Help: "API-ключи и эндпоинты: /api add|key|endpoint|list|use|remove|refresh"},
-	{Name: "/backend", Help: "Сменить бэкенд: /backend <name>"},
+	{Name: "/backend", Help: "Выбрать провайдера, затем его модель"},
 	{Name: "/tools", Help: "Список доступных тулз"},
 	{Name: "/memory", Help: "Состояние памяти"},
 	{Name: "/plan", Help: "Текущий план агента (scratchpad)"},
@@ -49,13 +49,13 @@ func helpText() string {
 	}
 	sb.WriteString("\nКлавиши\n")
 	for _, k := range [][2]string{
-		{"Enter", "отправить"},
-		{"Tab", "автодополнение команды; при запущенном shell — переключить фокус"},
-		{"↑ ↓", "история ввода или выбор в подсказке"},
-		{"Esc", "закрыть подсказку"},
+		{"Enter", "отправить; в подсказке — выполнить выбранную команду"},
+		{"Tab", "дополнить команду; при запущенном shell — переключить фокус"},
+		{"↑ ↓", "выбор в подсказке или списке, иначе история ввода"},
+		{"Esc", "закрыть подсказку или список; пока агент работает — остановить его"},
 		{"PgUp PgDn", "прокрутка, колесо мыши тоже работает"},
 		{"Shift+мышь", "выделить и скопировать текст"},
-		{"Ctrl+C", "выход"},
+		{"Ctrl+C", "очистить ввод; дважды на пустом вводе — выход"},
 	} {
 		sb.WriteString(fmt.Sprintf("  %-10s %s\n", k[0], k[1]))
 	}

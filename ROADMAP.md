@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.3.2
+Stage: 0.3.3
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -15,6 +15,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Tool calls rendered as separate blocks with status
 - [x] Session summary on exit
 - [x] Reworked UI: single background, welcome card, framed input, spinner, Markdown replies, collapsed tool output, mouse-wheel scrolling, Russian `allan --help`
+- [x] Keyboard navigation: model and provider pickers (arrows, search, Enter), Enter runs the highlighted suggestion, Esc stops the agent, double Ctrl+C to quit
 
 ## Memory and skills
 - [x] SQLite memory: sessions, conversations, facts with full-text search, `--resume`

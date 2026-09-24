@@ -33,6 +33,10 @@ type Message struct {
 	Tool   string
 	Args   string
 	Status string // "running" | "done" | "error"
+
+	// cache of the last render; cleared whenever the message changes
+	rendered  string
+	renderedW int
 }
 
 // toolOutputLines is how many lines of tool output stay visible.
