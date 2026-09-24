@@ -2,50 +2,55 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// No style sets a background: the terminal's own background shows through
+// everywhere, so there are no mismatched patches between regions.
 var (
-	ColorCyan     = lipgloss.Color("#4dd9e0")
-	ColorGreen    = lipgloss.Color("#3ddc84")
-	ColorOrange   = lipgloss.Color("#ff8c42")
-	ColorGrey     = lipgloss.Color("#4a4a5a")
-	ColorYellow   = lipgloss.Color("#f5c842")
-	ColorRed      = lipgloss.Color("#ff5f5f")
-	ColorBgHeader = lipgloss.Color("#111114")
-	ColorBgMain   = lipgloss.Color("#0c0c0e")
-	ColorFg       = lipgloss.Color("#e6e6ea")
-	ColorMuted    = lipgloss.Color("#7a7a8a")
+	ColorAccent = lipgloss.Color("#4dd9e0") // cyan: brand, user, focus
+	ColorGreen  = lipgloss.Color("#3ddc84")
+	ColorOrange = lipgloss.Color("#ff9f5a")
+	ColorYellow = lipgloss.Color("#f5c842")
+	ColorRed    = lipgloss.Color("#ff6b6b")
+	ColorFg     = lipgloss.Color("#e6e6ea")
+	ColorMuted  = lipgloss.Color("#8a8a9a")
+	ColorDim    = lipgloss.Color("#55556a")
 
-	StyleHeader = lipgloss.NewStyle().
-			Background(ColorBgHeader).
-			Foreground(ColorFg).
-			Padding(0, 1)
+	StyleBrand = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	StyleMuted = lipgloss.NewStyle().Foreground(ColorMuted)
+	StyleDim   = lipgloss.NewStyle().Foreground(ColorDim)
+	StyleText  = lipgloss.NewStyle().Foreground(ColorFg)
+	StyleKey   = lipgloss.NewStyle().Foreground(ColorAccent)
 
-	StyleLogo = lipgloss.NewStyle().
-			Foreground(ColorCyan).
-			Background(ColorBgHeader).
-			Bold(true)
-
-	StyleHeaderInfo = lipgloss.NewStyle().
-			Background(ColorBgHeader).
-			Foreground(ColorMuted)
-
-	StyleStatus = lipgloss.NewStyle().
-			Background(ColorBgHeader).
-			Foreground(ColorMuted).
-			Padding(0, 1)
-
-	StyleBadgeYou   = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-	StyleBadgeAllan = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
-	StyleBadgeTool  = lipgloss.NewStyle().Foreground(ColorOrange).Bold(true)
-	StyleBadgeSys   = lipgloss.NewStyle().Foreground(ColorGrey).Bold(true)
-	StyleBadgeWarn  = lipgloss.NewStyle().Foreground(ColorYellow).Bold(true)
-	StyleBadgeError = lipgloss.NewStyle().Foreground(ColorRed).Bold(true)
-
-	StyleToolBlock = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
+	StyleUserBar = lipgloss.NewStyle().
+			BorderStyle(lipgloss.ThickBorder()).
 			BorderLeft(true).
-			BorderForeground(ColorOrange).
+			BorderForeground(ColorAccent).
 			Foreground(ColorFg).
 			PaddingLeft(1)
+
+	StyleDotAllan = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	StyleDotTool  = lipgloss.NewStyle().Foreground(ColorOrange).Bold(true)
+	StyleWarn     = lipgloss.NewStyle().Foreground(ColorYellow)
+	StyleError    = lipgloss.NewStyle().Foreground(ColorRed)
+	StyleOK       = lipgloss.NewStyle().Foreground(ColorGreen)
+
+	StyleInput = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(ColorAccent).
+			Padding(0, 1)
+
+	StyleInputBusy = StyleInput.BorderForeground(ColorDim)
+
+	StylePopup = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(ColorDim).
+			Padding(0, 1)
+
+	StylePopupSelected = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+
+	StyleWelcome = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(ColorDim).
+			Padding(1, 2)
 
 	StylePTYFocused = lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
@@ -60,17 +65,9 @@ var (
 			BorderForeground(ColorRed).
 			Foreground(ColorFg).
 			PaddingLeft(1)
-
-	StylePrompt = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
-
-	StylePopup = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(ColorCyan).
-			Background(ColorBgHeader).
-			Foreground(ColorFg).
-			Padding(0, 1)
 )
 
-const Logo = `   ___   _      _       ___   _   _
-  / _ \ | |    | |     / _ \ | \ | |
- | |_| || |__  | |__  | |_| ||  \| |`
+// Logo is drawn with box-drawing blocks, so it reads as "ALLAN" in any
+// monospace font instead of a pile of slashes.
+const Logo = `▄▀█ █   █   ▄▀█ █▄ █
+█▀█ █▄▄ █▄▄ █▀█ █ ▀█`

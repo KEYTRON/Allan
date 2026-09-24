@@ -15,7 +15,7 @@ func osUserHomeDir() (string, error) {
 }
 
 func Run(m *Model) error {
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	globalProgram = p
 	_, err := p.Run()
 	return err

@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.3.0
+Stage: 0.3.1
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -14,6 +14,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Bubbletea TUI: slash commands with autocompletion, input history
 - [x] Tool calls rendered as separate blocks with status
 - [x] Session summary on exit
+- [x] Reworked UI: single background, welcome card, framed input, spinner, Markdown replies, collapsed tool output, mouse-wheel scrolling, Russian `allan --help`
 
 ## Memory and skills
 - [x] SQLite memory: sessions, conversations, facts with full-text search, `--resume`

@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type SlashCommand struct {
 	Name   string
@@ -32,4 +35,30 @@ func MatchSlash(prefix string) []SlashCommand {
 		}
 	}
 	return out
+}
+
+// helpText is the /help output: commands, then keys.
+func helpText() string {
+	var sb strings.Builder
+	sb.WriteString("Команды\n")
+	for _, c := range SlashCommands {
+		if c.Name == "/exit" {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("  %-10s %s\n", c.Name, c.Help))
+	}
+	sb.WriteString("\nКлавиши\n")
+	for _, k := range [][2]string{
+		{"Enter", "отправить"},
+		{"Tab", "автодополнение команды; при запущенном shell — переключить фокус"},
+		{"↑ ↓", "история ввода или выбор в подсказке"},
+		{"Esc", "закрыть подсказку"},
+		{"PgUp PgDn", "прокрутка, колесо мыши тоже работает"},
+		{"Shift+мышь", "выделить и скопировать текст"},
+		{"Ctrl+C", "выход"},
+	} {
+		sb.WriteString(fmt.Sprintf("  %-10s %s\n", k[0], k[1]))
+	}
+	sb.WriteString("\nКлючи вне TUI: allan key set <provider>. Справка по запуску: allan --help")
+	return sb.String()
 }

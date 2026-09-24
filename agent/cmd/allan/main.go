@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,20 +20,27 @@ import (
 	"github.com/keytron/allan/agent/internal/vector"
 )
 
-var version = "0.3.0"
+var version = "0.3.1"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "key" {
-		os.Exit(runKey(os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "key":
+			os.Exit(runKey(os.Args[2:]))
+		case "help":
+			printUsage()
+			return
+		}
 	}
 	var (
-		flBackend   = flag.String("backend", "", "Override backend from config (anthropic|openai|ollama|llamacpp|lmstudio)")
-		flModel     = flag.String("model", "", "Override model from config")
-		flWorkspace = flag.String("workspace", "", "Set working directory (default: current dir)")
-		flResume    = flag.Bool("resume", false, "Resume last session")
-		flVersion   = flag.Bool("version", false, "Show version")
-		flNoMemory  = flag.Bool("no-memory", false, "Disable memory for this session")
+		flBackend   = flag.String("backend", "", "провайдер")
+		flModel     = flag.String("model", "", "модель")
+		flWorkspace = flag.String("workspace", "", "рабочая папка")
+		flResume    = flag.Bool("resume", false, "продолжить последнюю сессию")
+		flVersion   = flag.Bool("version", false, "версия")
+		flNoMemory  = flag.Bool("no-memory", false, "без памяти")
 	)
+	flag.Usage = printUsage
 	flag.Parse()
 
 	if *flVersion {
@@ -82,6 +90,16 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "backend: %v\n", err)
 		os.Exit(1)
+	}
+	if *flModel == "" && backend.IsLocalProvider(cfg.Backend.Type) {
+		if picked := pickInstalledModel(ctx, be, cfg.Backend.Model); picked != "" && picked != cfg.Backend.Model {
+			cfg.Backend.Model = picked
+			_ = config.Save(cfg)
+			if be, err = backend.New(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "backend: %v\n", err)
+				os.Exit(1)
+			}
+		}
 	}
 
 	if cfg.Backend.Type == "anthropic" && cfg.Backend.APIKey == "" {
@@ -180,13 +198,77 @@ func main() {
 func printSummary(ag *agent.Agent, started time.Time) {
 	dur := time.Since(started).Round(time.Second)
 	fmt.Println()
-	fmt.Println("Allan Session Summary")
-	fmt.Println("─────────────────────")
-	fmt.Printf("Session ID:    %s\n", ag.SessionID)
-	fmt.Printf("Duration:      %s\n", dur)
-	fmt.Printf("Tool Calls:    %d (✓ %d  ✗ %d)\n", ag.Stats.ToolCalls, ag.Stats.SuccessCalls, ag.Stats.FailedCalls)
-	fmt.Printf("Tokens In:     %d\n", ag.Stats.TokensIn)
-	fmt.Printf("Tokens Out:    %d\n", ag.Stats.TokensOut)
-	fmt.Printf("Backend:       %s\n", ag.Backend.Name())
-	fmt.Printf("Model:         %s\n", ag.Cfg.Backend.Model)
+	fmt.Printf("◆ allan · сессия завершена за %s\n", dur)
+	fmt.Printf("  модель       %s/%s\n", ag.Cfg.Backend.Type, ag.Cfg.Backend.Model)
+	fmt.Printf("  инструменты  %d (✓ %d  ✗ %d)\n", ag.Stats.ToolCalls, ag.Stats.SuccessCalls, ag.Stats.FailedCalls)
+	fmt.Printf("  токены       %d вход · %d выход\n", ag.Stats.TokensIn, ag.Stats.TokensOut)
+	fmt.Printf("  сессия       %s (продолжить: allan --resume)\n", ag.SessionID)
+}
+
+// pickInstalledModel keeps the configured model if the local server has it,
+// otherwise picks an installed chat model so the first request does not fail
+// on a model that was never pulled (the default llama3.2, for example).
+// Ollama's ":cloud" models come first: local 3-7B models rarely handle tools well.
+func pickInstalledModel(ctx context.Context, be backend.Backend, want string) string {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	models, err := be.Models(cctx)
+	if err != nil || len(models) == 0 {
+		return ""
+	}
+	chat := []string{}
+	for _, m := range models {
+		if m == want || m == want+":latest" {
+			return m
+		}
+		low := strings.ToLower(m)
+		if strings.Contains(low, "embed") || strings.Contains(low, "ocr") || strings.Contains(low, "rerank") {
+			continue
+		}
+		chat = append(chat, m)
+	}
+	for _, m := range chat {
+		if strings.HasSuffix(m, ":cloud") || strings.HasSuffix(m, "-cloud") {
+			return m
+		}
+	}
+	if len(chat) > 0 {
+		return chat[0]
+	}
+	return ""
+}
+
+func printUsage() {
+	fmt.Printf(`Allan %s — автономный агент в терминале
+
+Использование:
+  allan [флаги]                 запустить TUI в текущей папке
+  allan key set <provider>      сохранить API-ключ (скрытый ввод, системный keyring)
+  allan key list | rm <provider>
+  allan help                    эта справка
+
+Флаги:
+  --model <имя>          модель на этот запуск (например glm-5.2:cloud)
+  --backend <провайдер>  провайдер на этот запуск: ollama, openrouter, opencode, ...
+  --workspace <папка>    рабочая папка агента (по умолчанию текущая)
+  --resume               продолжить последнюю сессию
+  --no-memory            не читать и не писать память
+  --version              показать версию
+
+Провайдеры:
+  облачные   %s
+  локальные  ollama, llamacpp, lmstudio (без ключа, находятся автоматически)
+
+Внутри TUI: /help — команды, /model — выбрать модель, /api — ключи и эндпоинты.
+
+Файлы:
+  ~/.allan/config.toml   настройки (без ключей)
+  ~/.allan/memory.db     память и сессии
+  ключи                  системный keyring, иначе ~/.allan/secrets.json (0600)
+
+Примеры:
+  allan key set openrouter
+  allan --backend opencode --model deepseek-v4-flash-free
+  allan --workspace ~/git/project --resume
+`, version, strings.Join(knownProviders(), ", "))
 }

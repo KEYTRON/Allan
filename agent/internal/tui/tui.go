@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -51,8 +53,10 @@ type Model struct {
 	ptyCmd    string
 	ptyOutput string
 
-	thinking  bool
-	startedAt time.Time
+	thinking      bool
+	thinkingSince time.Time
+	spinner       spinner.Model
+	startedAt     time.Time
 }
 
 type modelChoice struct {
@@ -62,16 +66,33 @@ type modelChoice struct {
 
 func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask Allan..."
+	// bubbles/textarea draws the cursor over the placeholder's first byte,
+	// which garbles a leading Cyrillic letter, so it starts with ASCII.
+	ta.Placeholder = "/ — команды, или просто напишите задачу"
 	ta.ShowLineNumbers = false
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.Prompt = ""
+	// Default textarea styles paint the cursor line grey; keep it transparent.
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Base = lipgloss.NewStyle()
+	ta.FocusedStyle.Text = StyleText
+	ta.FocusedStyle.Placeholder = StyleDim
+	ta.BlurredStyle = ta.FocusedStyle
+	ta.Cursor.Style = StyleBrand
 	ta.CharLimit = 8192
 	ta.Focus()
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
 	vp := viewport.New(80, 20)
 	vp.MouseWheelEnabled = true
+	// Only page keys scroll: the default map also binds k/j/u/d/space,
+	// which would scroll the chat while typing.
+	vp.KeyMap = viewport.KeyMap{
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+	}
+
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(StyleDotAllan))
 
 	m := &Model{
 		Cfg:       cfg,
@@ -80,6 +101,7 @@ func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model 
 		Version:   version,
 		textarea:  ta,
 		viewport:  vp,
+		spinner:   sp,
 		startedAt: time.Now(),
 	}
 	m.welcome()
@@ -87,11 +109,7 @@ func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model 
 }
 
 func (m *Model) welcome() {
-	m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf(
-		"Allan %s — backend: %s, model: %s, workspace: %s",
-		m.Version, m.Ag.Backend.Name(), m.Cfg.Backend.Model, m.Workspace,
-	)})
-	m.appendMsg(Message{Kind: MsgSys, Text: "Введите /help для списка команд. Tab для автодополнения."})
+	m.appendMsg(Message{Kind: MsgWelcome})
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -121,6 +139,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalcLayout()
 	case tickMsg:
 		// future PTY tick
+	case spinner.TickMsg:
+		if m.thinking {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			m.recalcLayout()
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	if !m.thinking && m.focus == FocusTUI {
@@ -128,6 +153,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea, cmd = m.textarea.Update(msg)
 		cmds = append(cmds, cmd)
 		m.updatePopup()
+		m.recalcLayout()
 	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -317,18 +343,20 @@ func (m *Model) submit(input string) tea.Cmd {
 	}
 
 	m.thinking = true
+	m.thinkingSince = time.Now()
+	m.recalcLayout()
 	events := make(chan agent.Event, 32)
 	ctx := context.Background()
 	go m.Ag.Run(ctx, input, events)
 
-	return func() tea.Msg {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		ev, ok := <-events
 		if !ok {
 			return agentDoneMsg{}
 		}
 		go m.drainEvents(events)
 		return agentEventMsg{ev: ev}
-	}
+	})
 }
 
 func redactSensitiveInput(input string) string {
@@ -397,11 +425,7 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 	args := parts[1:]
 	switch cmd {
 	case "/help":
-		var sb strings.Builder
-		for _, c := range SlashCommands {
-			sb.WriteString(fmt.Sprintf("%-10s %s\n", c.Name, c.Help))
-		}
-		m.appendMsg(Message{Kind: MsgSys, Text: strings.TrimRight(sb.String(), "\n")})
+		m.appendMsg(Message{Kind: MsgSys, Text: helpText()})
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/clear":
@@ -967,116 +991,190 @@ func (m *Model) appendMsg(msg Message) {
 }
 
 func (m *Model) recalcLayout() {
-	if m.width < 20 || m.height < 10 {
+	if m.width < 20 || m.height < 8 {
 		return
 	}
-	headerH := 4
+	m.textarea.SetWidth(maxInt(10, m.width-6))
+	m.textarea.SetHeight(m.inputLines())
+
+	headerH := lipgloss.Height(m.renderHeader())
+	inputH := lipgloss.Height(m.renderInput())
 	statusH := 1
-	inputH := 4
 	popupH := 0
 	if m.popupOpen {
-		popupH = len(m.popupItems) + 2
-		if popupH > 8 {
-			popupH = 8
-		}
-	}
-	mainH := m.height - headerH - statusH - inputH - popupH
-	if mainH < 5 {
-		mainH = 5
+		popupH = lipgloss.Height(m.renderPopup())
 	}
 	m.viewport.Width = m.width
-	m.viewport.Height = mainH
+	m.viewport.Height = maxInt(3, m.height-headerH-inputH-statusH-popupH)
 
-	var sb strings.Builder
+	w := maxInt(20, m.width-2)
+	blocks := make([]string, 0, len(m.messages)+1)
 	for _, msg := range m.messages {
-		sb.WriteString(renderMessage(msg, m.width-2))
-		sb.WriteString("\n\n")
+		if msg.Kind == MsgWelcome {
+			blocks = append(blocks, m.renderWelcome(w))
+			continue
+		}
+		blocks = append(blocks, renderMessage(msg, w))
 	}
 	if m.thinking {
-		sb.WriteString(StyleBadgeAllan.Render("[allan]") + " " + lipgloss.NewStyle().Foreground(ColorMuted).Render("thinking…"))
-		sb.WriteString("\n")
+		elapsed := time.Since(m.thinkingSince).Round(time.Second)
+		blocks = append(blocks, m.spinner.View()+" "+StyleMuted.Render(fmt.Sprintf("Allan думает… %s", elapsed)))
 	}
-	m.viewport.SetContent(sb.String())
+	m.viewport.SetContent(indent(strings.Join(blocks, "\n\n"), " "))
 	m.viewport.GotoBottom()
-	m.textarea.SetWidth(m.width - 4)
+}
+
+// inputLines grows the input box with its content, up to 6 lines.
+func (m *Model) inputLines() int {
+	w := maxInt(10, m.width-6)
+	n := 0
+	for _, l := range strings.Split(m.textarea.Value(), "\n") {
+		n += 1 + lipgloss.Width(l)/w
+	}
+	return minInt(6, maxInt(1, n))
 }
 
 func (m *Model) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "Initializing..."
+		return "Загрузка…"
 	}
-	header := m.renderHeader()
-	body := lipgloss.NewStyle().Background(ColorBgMain).Foreground(ColorFg).Render(m.viewport.View())
-	popup := ""
+	parts := []string{m.renderHeader(), m.viewport.View()}
 	if m.popupOpen {
-		popup = m.renderPopup()
+		parts = append(parts, m.renderPopup())
 	}
-	input := m.renderInput()
-	status := m.renderStatus()
-	parts := []string{header, body}
-	if popup != "" {
-		parts = append(parts, popup)
-	}
-	parts = append(parts, input, status)
+	parts = append(parts, m.renderInput(), m.renderStatus())
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
+func (m *Model) currentModel() string {
+	return m.Cfg.Backend.Type + "/" + m.Cfg.Backend.Model
+}
+
 func (m *Model) renderHeader() string {
-	logoLines := strings.Split(Logo, "\n")
-	logoWidth := 0
-	for _, l := range logoLines {
-		if len(l) > logoWidth {
-			logoWidth = len(l)
+	left := " " + StyleBrand.Render("◆ allan") + StyleDim.Render(" v"+m.Version)
+	right := StyleMuted.Render(truncate(m.currentModel(), maxInt(10, m.width/2))) + " "
+	gap := maxInt(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
+	line := left + strings.Repeat(" ", gap) + right
+	rule := StyleDim.Render(strings.Repeat("─", m.width))
+	return line + "\n" + rule
+}
+
+func (m *Model) renderWelcome(width int) string {
+	keys := "нет"
+	if n := m.providersWithKeys(); n > 0 {
+		keys = fmt.Sprintf("%d (%s)", n, m.secretsKind())
+	}
+	row := func(k, v string) string {
+		return StyleMuted.Render(padRight(k, 12)) + StyleText.Render(v)
+	}
+	tip := func(cmd, text string) string {
+		return StyleKey.Render(padRight(cmd, 12)) + StyleMuted.Render(text)
+	}
+	lines := []string{
+		StyleBrand.Render(Logo),
+		"",
+		row("модель", m.currentModel()),
+		row("папка", abbrevPath(m.Workspace)),
+		row("ключи API", keys),
+		"",
+		tip("/model", "выбрать модель из каталога"),
+		tip("/api", "ключи провайдеров и свои эндпоинты"),
+		tip("/help", "все команды"),
+		tip("Tab", "автодополнение команд"),
+		tip("↑ ↓", "история ввода"),
+		tip("Ctrl+C", "выход"),
+	}
+	card := StyleWelcome.Render(strings.Join(lines, "\n"))
+	if lipgloss.Width(card) > width {
+		return strings.Join(lines, "\n")
+	}
+	return card
+}
+
+func (m *Model) providersWithKeys() int {
+	n := 0
+	for _, p := range m.Cfg.Providers {
+		if p.APIKey != "" {
+			n++
 		}
 	}
-	infoText := fmt.Sprintf("Allan v%s   [backend: %s/%s]   %s",
-		m.Version, m.Ag.Backend.Name(), m.Cfg.Backend.Model, m.Workspace)
-	logoStyled := StyleLogo.Render(Logo)
-	infoStyled := StyleHeaderInfo.Render(infoText)
-
-	pad := strings.Repeat(" ", maxInt(2, m.width-logoWidth-len(infoText)-2))
-	right := infoStyled
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Top, logoStyled, pad, right)
-	return StyleHeader.Width(m.width).Render(headerLine)
+	return n
 }
 
 func (m *Model) renderInput() string {
-	prompt := StylePrompt.Render("› ")
-	return prompt + m.textarea.View()
+	style := StyleInput
+	if m.thinking {
+		style = StyleInputBusy
+	}
+	prompt := StyleBrand.Render("› ")
+	return style.Width(maxInt(10, m.width-2)).Render(prompt + m.textarea.View())
 }
 
+const popupMaxItems = 8
+
 func (m *Model) renderPopup() string {
-	var sb strings.Builder
-	for i, c := range m.popupItems {
-		line := fmt.Sprintf("%-12s %s", c.Name, c.Help)
-		if i == m.popupSelected {
-			line = lipgloss.NewStyle().Foreground(ColorBgHeader).Background(ColorCyan).Render(line)
-		}
-		sb.WriteString(line + "\n")
+	start := 0
+	if m.popupSelected >= popupMaxItems {
+		start = m.popupSelected - popupMaxItems + 1
 	}
-	return StylePopup.Render(strings.TrimRight(sb.String(), "\n"))
+	end := minInt(len(m.popupItems), start+popupMaxItems)
+	nameW := 0
+	for _, c := range m.popupItems[start:end] {
+		nameW = maxInt(nameW, lipgloss.Width(c.Name))
+	}
+	nameW = minInt(nameW, maxInt(10, m.width/2))
+	helpW := maxInt(10, m.width-nameW-10)
+	lines := make([]string, 0, end-start+1)
+	for i := start; i < end; i++ {
+		c := m.popupItems[i]
+		name := padRight(truncate(c.Name, nameW), nameW)
+		help := truncate(c.Help, helpW)
+		if i == m.popupSelected {
+			lines = append(lines, StylePopupSelected.Render("› "+name)+"  "+StyleText.Render(help))
+		} else {
+			lines = append(lines, StyleMuted.Render("  "+name)+"  "+StyleDim.Render(help))
+		}
+	}
+	if len(m.popupItems) > popupMaxItems {
+		lines = append(lines, StyleDim.Render(fmt.Sprintf("  %d из %d · ↑↓ выбор · Tab вставить", m.popupSelected+1, len(m.popupItems))))
+	}
+	return StylePopup.Width(maxInt(10, m.width-2)).Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) renderStatus() string {
-	parts := []string{
-		fmt.Sprintf("workspace %s", abbrevPath(m.Workspace)),
-		fmt.Sprintf("backend %s", m.Ag.Backend.Name()),
-		fmt.Sprintf("model %s", m.Cfg.Backend.Model),
-		fmt.Sprintf("calls %d", m.Ag.Stats.ToolCalls),
-		fmt.Sprintf("tokens %d", m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut),
-	}
+	left := " " + abbrevPath(m.Workspace)
 	if m.ptyActive {
-		parts = append(parts, fmt.Sprintf("⚙ %s", m.ptyCmd))
+		target := "shell"
 		if m.focus == FocusPTY {
-			parts = append(parts, "Tab: фокус Allan")
-		} else {
-			parts = append(parts, "Tab: фокус shell")
+			target = "Allan"
 		}
+		left += " · ⚙ " + m.ptyCmd + " · Tab: фокус " + target
 	}
-	left := strings.Join(parts, "  ·  ")
-	right := "? /help"
-	pad := strings.Repeat(" ", maxInt(1, m.width-len(left)-len(right)-2))
-	return StyleStatus.Width(m.width).Render(left + pad + right)
+	right := fmt.Sprintf("инструменты %d · токены %s · /help ", m.Ag.Stats.ToolCalls, humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		left = truncate(left, maxInt(5, m.width-lipgloss.Width(right)-1))
+		gap = maxInt(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
+	}
+	return StyleDim.Render(left + strings.Repeat(" ", gap) + right)
+}
+
+func humanTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	default:
+		return strconv.Itoa(n)
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func abbrevPath(p string) string {
