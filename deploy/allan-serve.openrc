@@ -1,19 +1,26 @@
 #!/sbin/openrc-run
-# OpenRC: /etc/init.d/allan-serve  (Void, Gentoo, Alpine)
+# OpenRC (Gentoo, Void, Alpine): /etc/init.d/allan-serve
 #   rc-update add allan-serve default
 #   rc-service allan-serve start
 #   rc-service allan-serve status
+#   tail -f /var/log/allan-serve.log
 #
-# Токен берётся из системного keyring (его кладёт `allan connect`).
+# Воркер НЕ запускается от root: агент выполняет команды от пользователя,
+# поэтому процесс должен принадлежать ему же.
+# Токен берётся из системного keyring — его кладёт `allan connect`.
 name="allan-serve"
 description="Allan agent worker (HTTP for the phone app and the site)"
 
-command="/home/keytron46/git/Allan/agent/bin/allan"
+: ${allan_user:=keytron46}
+: ${allan_home:=/home/${allan_user}}
+command="${allan_home}/git/Allan/agent/bin/allan"
 command_args="serve --listen 100.118.140.15:8790"
+command_user="${allan_user}"
 command_background="yes"
 pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/${RC_SVCNAME}.log"
 error_log="/var/log/${RC_SVCNAME}.log"
+retry="${allan_user}"
 
 depend() {
 	need net
@@ -21,5 +28,9 @@ depend() {
 }
 
 start_pre() {
-	checkpath --directory --owner "$USER" --mode 0755 "$HOME/.allan"
+	checkpath --directory --owner "${allan_user}" --mode 0700 "${allan_home}/.allan"
+}
+
+rc_add_depends() {
+	after localmount
 }

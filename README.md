@@ -262,20 +262,33 @@ allan serve --listen 100.118.140.15:8790     # Tailscale, для сервера-
 `ALLAN_WORKER_TOKEN`. Пустой токен — воркер не стартует: агент умеет выполнять
 команды от вашего имени, и открытый без токена процесс опасен.
 
-Воркер — обычный процесс в foreground, поэтому запускается где угодно:
+Воркер — обычный процесс в foreground, поэтому запускается где угодно: systemd
+там не единственная система инициализации.
 
 ```bash
 # systemd (user-сервис, без root)
 systemctl --user enable --now allan-serve
 
-# OpenRC (/etc/init.d/allan-serve, от root)
-rc-update add allan-serve default && rc-service allan-serve start
+# OpenRC: Gentoo, Void, Alpine — файл из deploy/, ставится от root,
+# но сам процесс работает от пользователя (иначе агент получил бы root)
+sudo cp deploy/allan-serve.openrc /etc/init.d/allan-serve
+sudo chmod +x /etc/init.d/allan-serve
+sudo rc-update add allan-serve default && sudo rc-service allan-serve start
 
 # runit (Void Linux, K1OS)
-/etc/sv/allan-serve/run + /etc/sv/allan-serve/finish
+sudo cp deploy/allan-serve.run /etc/sv/allan-serve/run
+sudo chmod +x /etc/sv/allan-serve/run
+sudo sv up allan-serve
+
+# launchd (macOS)
+cp deploy/allan-serve.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/allan-serve.plist
+
+# без init-системы вовсе: ярлык в автозагрузке рабочего стола
+cp deploy/allan-serve.desktop ~/.config/autostart/
 ```
 
-Примеры файлов — в [`deploy/`](deploy/).
+Все файлы — в [`deploy/`](deploy/). Токен всегда из системного keyring, поэтому
+процесс нельзя запустить «просто так»: без `allan connect` воркер не стартует.
 
 ### HTTP API воркера
 
