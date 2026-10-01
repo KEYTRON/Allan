@@ -5,206 +5,154 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/agent"
-	"github.com/keytron/allan/agent/internal/backend"
-	"github.com/keytron/allan/agent/internal/memory"
-	"github.com/keytron/allan/agent/internal/skills"
-	"github.com/keytron/allan/agent/internal/tools"
+	"github.com/keytron/allan/agent/internal/bootstrap"
+	"github.com/keytron/allan/agent/internal/i18n"
 	"github.com/keytron/allan/agent/internal/tui"
-	"github.com/keytron/allan/agent/internal/vector"
 )
 
-var version = "0.3.4"
+// scanLangFlag finds --lang/--lang=… before the flag package runs, so the help
+// text is already in the right language.
+func scanLangFlag(args []string) string {
+	for i, a := range args {
+		switch {
+		case a == "--lang" && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(a, "--lang="):
+			return strings.TrimPrefix(a, "--lang=")
+		}
+	}
+	return ""
+}
+
+var version = "0.4.0"
+
+// resumeFlag accepts both "allan --resume" and "allan --resume <id>" (also
+// "allan --resume=<id>"). Go's flag package cannot do that with a plain Bool:
+// a string flag would demand a value, and a bool flag would reject one.
+type resumeFlag struct {
+	set bool
+	id  string
+}
+
+func (r *resumeFlag) String() string {
+	if r.id == "" {
+		return ""
+	}
+	return r.id
+}
+
+func (r *resumeFlag) Set(v string) error {
+	r.set = true
+	if v != "true" && v != "" {
+		r.id = v
+	}
+	return nil
+}
+
+// IsBoolFlag makes "--resume" valid without a value.
+func (r *resumeFlag) IsBoolFlag() bool { return true }
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	// The language must be known before the help text and the flag descriptions
+	// are built, so --lang is picked out of the arguments up front.
+	if langFlag := scanLangFlag(os.Args[1:]); langFlag != "" {
+		i18n.Set(i18n.Normalize(langFlag))
+	} else {
+		if l := i18n.Normalize(config.LangFromFile()); l != "" {
+			i18n.Set(l)
+		} else {
+			i18n.Set(i18n.Detect())
+		}
+	}
+
+	var (
+		flBackend   = flag.String("backend", "", i18n.S("провайдер"))
+		flModel     = flag.String("model", "", i18n.S("модель"))
+		flWorkspace = flag.String("workspace", "", i18n.S("рабочая папка"))
+		flVersion   = flag.Bool("version", false, i18n.S("версия"))
+		flNoMemory  = flag.Bool("no-memory", false, i18n.S("без памяти"))
+		flLang      = flag.String("lang", "", i18n.S("язык интерфейса: ru, en, de"))
+		flResume    = &resumeFlag{}
+	)
+	// The value of --lang was already read by scanLangFlag; the flag itself only
+	// has to exist so the parser accepts it.
+	_ = flLang
+	flag.Var(flResume, "resume", i18n.S("продолжить сессию: --resume [id] (без id — последняя)"))
+	flag.Usage = printUsage
+	flag.Parse()
+
+	// Everything from the first non-flag word onwards belongs to a subcommand:
+	// both `allan key set openrouter` and `allan --lang en serve` must work.
+	args := flag.Args()
+	if len(args) > 0 {
+		switch args[0] {
 		case "key":
-			os.Exit(runKey(os.Args[2:]))
+			os.Exit(runKey(args[1:]))
+		case "serve":
+			os.Exit(runServe(args[1:]))
+		case "connect":
+			os.Exit(runConnect(args[1:]))
 		case "help":
 			printUsage()
 			return
 		}
 	}
-	var (
-		flBackend   = flag.String("backend", "", "провайдер")
-		flModel     = flag.String("model", "", "модель")
-		flWorkspace = flag.String("workspace", "", "рабочая папка")
-		flResume    = flag.Bool("resume", false, "продолжить последнюю сессию")
-		flVersion   = flag.Bool("version", false, "версия")
-		flNoMemory  = flag.Bool("no-memory", false, "без памяти")
-	)
-	flag.Usage = printUsage
-	flag.Parse()
+
+	// "allan --resume <id>" passes the id where a subcommand would be.
+	resume := flResume.set
+	resumeID := flResume.id
+	if resume && resumeID == "" && len(args) > 0 {
+		resumeID = strings.TrimSpace(args[0])
+	}
 
 	if *flVersion {
 		fmt.Printf("allan %s\n", version)
 		return
 	}
 
-	cfg, created, err := config.Load()
+	ctx := context.Background()
+	rt, err := bootstrap.Build(ctx, bootstrap.Options{
+		Workspace:      *flWorkspace,
+		NoMemory:       *flNoMemory,
+		Backend:        *flBackend,
+		Model:          *flModel,
+		PickLocalModel: true,
+	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	if created {
+	if rt.Created {
 		path, _ := config.ConfigPath()
 		fmt.Printf("Создан дефолтный конфиг: %s\n", path)
 	}
-
-	if *flBackend != "" {
-		cfg.Backend.Type = *flBackend
-	}
-	if *flModel != "" {
-		cfg.Backend.Model = *flModel
-	}
-
-	workspace, _ := os.Getwd()
-	if *flWorkspace != "" {
-		workspace = *flWorkspace
-	} else if cfg.Agent.Workspace != "" && cfg.Agent.Workspace != "." {
-		workspace = config.Expand(cfg.Agent.Workspace)
-	}
-	abs, err := filepath.Abs(workspace)
-	if err == nil {
-		workspace = abs
-	}
-
-	// Auto-detect backend if no explicit choice and api keys missing
-	ctx := context.Background()
-	// A configured API provider (openrouter, ollama-cloud, ...) is an explicit choice too.
-	_, configured := cfg.Providers[cfg.Backend.Type]
-	if *flBackend == "" && !configured && cfg.Backend.Type != "anthropic" && cfg.Backend.Type != "openai" {
-		if detected := backend.Detect(ctx); detected != "" {
-			cfg.Backend.Type = detected
-		}
-	}
-
-	be, err := backend.New(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "backend: %v\n", err)
-		os.Exit(1)
-	}
-	startupNote := ""
-	if *flModel == "" && backend.IsLocalProvider(cfg.Backend.Type) {
-		if picked := pickInstalledModel(ctx, be, cfg.Backend.Model); picked != "" && picked != cfg.Backend.Model {
-			missing := cfg.Backend.Model
-			cfg.Backend.Model = picked
-			if missing == config.Default().Backend.Model {
-				// The stock default was never chosen by the user: replace it for good.
-				_ = config.Save(cfg)
-			} else {
-				// Keep the user's choice in the config; only this run uses a stand-in.
-				startupNote = fmt.Sprintf("Модели %s нет в %s, на этот запуск выбрана %s. Выбрать другую: /model", missing, cfg.Backend.Type, picked)
-				startupNote += fmt.Sprintf(" (если она нужна: ollama pull %s)", missing)
-			}
-			if be, err = backend.New(cfg); err != nil {
-				fmt.Fprintf(os.Stderr, "backend: %v\n", err)
-				os.Exit(1)
-			}
-		}
-	}
-
-	if cfg.Backend.Type == "anthropic" && cfg.Backend.APIKey == "" {
-		if k := os.Getenv("ANTHROPIC_API_KEY"); k != "" {
-			cfg.Backend.APIKey = k
-			be = backend.NewAnthropic(k, cfg.Backend.Model, cfg.Backend.BaseURL)
-		}
-	}
-	if cfg.Backend.Type == "openai" && cfg.Backend.APIKey == "" {
-		if k := os.Getenv("OPENAI_API_KEY"); k != "" {
-			cfg.Backend.APIKey = k
-			be = backend.NewOpenAILike("openai", "https://api.openai.com/v1", k, cfg.Backend.Model)
-		}
-	}
-
-	registry := tools.NewRegistry()
-	registry.Register(tools.NewBashTool(cfg.Tools.Shell.Default, workspace))
-	registry.Register(tools.NewReadFileTool(workspace))
-	registry.Register(tools.NewWriteFileTool(workspace))
-	registry.Register(tools.NewSearchTool())
-	if cfg.Tools.SSH.Enabled {
-		registry.Register(tools.NewSSHTool(cfg.Tools.SSH.KnownHostsStrict, cfg.Tools.SSH.DefaultTimeout))
-	}
-
-	var mem *memory.Memory
-	if cfg.Memory.Enabled && !*flNoMemory {
-		dbPath := config.Expand(cfg.Memory.DBPath)
-		mem, err = memory.Open(dbPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "memory open warning: %v\n", err)
-			mem = nil
-		}
-	}
-
-	var vec vector.Store
-	if cfg.Memory.ChromaDBURL != "" {
-		c := vector.NewChroma(cfg.Memory.ChromaDBURL, cfg.Memory.ChromaDBCollectionPrefix)
-		if c.Healthy(ctx) {
-			vec = c
-		} else {
-			vec = &vector.NoopStore{}
-		}
-	} else {
-		vec = &vector.NoopStore{}
-	}
-
-	var skillEngine *skills.Engine
-	if mem != nil {
-		skillEngine = skills.NewEngine(mem.DB(), vec)
-	}
-
-	ag := agent.New(cfg, be, registry, mem, skillEngine, vec, workspace)
-	ag.SessionID = uuid.NewString()
-
-	if mem != nil {
-		_ = mem.StartSession(ctx, &memory.Session{
-			ID:        ag.SessionID,
-			StartedAt: time.Now(),
-			Backend:   ag.Backend.Name(),
-			Model:     cfg.Backend.Model,
-		})
-		if *flResume {
-			msgs, err := mem.LastSessionMessages(ctx, 20)
-			if err == nil {
-				for _, mg := range msgs {
-					switch mg.Role {
-					case "user":
-						ag.History = append(ag.History, backend.Message{Role: backend.RoleUser, Content: mg.Content})
-					case "assistant":
-						ag.History = append(ag.History, backend.Message{Role: backend.RoleAssistant, Content: mg.Content})
-					}
-				}
-			}
-		}
-	}
-
 	startedAt := time.Now()
-	model := tui.New(cfg, ag, workspace, version)
-	if startupNote != "" {
-		model.Notice(startupNote)
+	model := tui.New(rt.Cfg, rt.Agent, rt.Workspace, version)
+	if rt.Notice != "" {
+		model.Notice(rt.Notice)
+	}
+	if resume {
+		msgs, err := rt.Resume(ctx, resumeID, 200)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--resume: %v\n", err)
+		} else {
+			model.Restore(msgs)
+			fmt.Printf("Продолжена сессия %s: сообщений %d, модель %s/%s\n",
+				rt.Agent.SessionID, len(msgs), rt.Cfg.Backend.Type, rt.Cfg.Backend.Model)
+		}
 	}
 	if err := tui.Run(model); err != nil {
 		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
 	}
 
 	// On exit:
-	if mem != nil {
-		_ = mem.EndSession(ctx, &memory.Session{
-			ID:        ag.SessionID,
-			ToolCalls: ag.Stats.ToolCalls,
-			TokensIn:  ag.Stats.TokensIn,
-			TokensOut: ag.Stats.TokensOut,
-		})
-		mem.Close()
-	}
-	printSummary(ag, startedAt)
+	rt.Close(ctx)
+	printSummary(rt.Agent, startedAt)
 }
 
 func printSummary(ag *agent.Agent, started time.Time) {
@@ -214,56 +162,28 @@ func printSummary(ag *agent.Agent, started time.Time) {
 	fmt.Printf("  модель       %s/%s\n", ag.Cfg.Backend.Type, ag.Cfg.Backend.Model)
 	fmt.Printf("  инструменты  %d (✓ %d  ✗ %d)\n", ag.Stats.ToolCalls, ag.Stats.SuccessCalls, ag.Stats.FailedCalls)
 	fmt.Printf("  токены       %d вход · %d выход\n", ag.Stats.TokensIn, ag.Stats.TokensOut)
-	fmt.Printf("  сессия       %s (продолжить: allan --resume)\n", ag.SessionID)
-}
-
-// pickInstalledModel keeps the configured model if the local server has it,
-// otherwise picks an installed chat model so the first request does not fail
-// on a model that was never pulled (the default llama3.2, for example).
-// Ollama's ":cloud" models come first: local 3-7B models rarely handle tools well.
-func pickInstalledModel(ctx context.Context, be backend.Backend, want string) string {
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	models, err := be.Models(cctx)
-	if err != nil || len(models) == 0 {
-		return ""
-	}
-	chat := []string{}
-	for _, m := range models {
-		if m == want || m == want+":latest" {
-			return m
-		}
-		low := strings.ToLower(m)
-		if strings.Contains(low, "embed") || strings.Contains(low, "ocr") || strings.Contains(low, "rerank") {
-			continue
-		}
-		chat = append(chat, m)
-	}
-	for _, m := range chat {
-		if strings.HasSuffix(m, ":cloud") || strings.HasSuffix(m, "-cloud") {
-			return m
-		}
-	}
-	if len(chat) > 0 {
-		return chat[0]
-	}
-	return ""
+	fmt.Printf("  сессия       %s (продолжить: allan --resume %s)\n", ag.SessionID, ag.SessionID)
 }
 
 func printUsage() {
-	fmt.Printf(`Allan %s — автономный агент в терминале
+	fmt.Print(i18n.F(usageText, version, strings.Join(knownProviders(), ", ")))
+}
+
+const usageText = `Allan %s — автономный агент в терминале
 
 Использование:
   allan [флаги]                 запустить TUI в текущей папке
   allan key set <provider>      сохранить API-ключ (скрытый ввод, системный keyring)
   allan key list | rm <provider>
+  allan connect [код]           связать эту машину с KEYTRON Prime (страница выдаёт код)
+  allan serve                   HTTP-воркер для телефона и сайта (обычно в фоне)
   allan help                    эта справка
 
 Флаги:
   --model <имя>          модель на этот запуск (например glm-5.2:cloud)
   --backend <провайдер>  провайдер на этот запуск: ollama, openrouter, opencode, ...
   --workspace <папка>    рабочая папка агента (по умолчанию текущая)
-  --resume               продолжить последнюю сессию
+  --resume [id]          продолжить последнюю сессию или конкретную по id
   --no-memory            не читать и не писать память
   --version              показать версию
 
@@ -271,7 +191,8 @@ func printUsage() {
   облачные   %s
   локальные  ollama, llamacpp, lmstudio (без ключа, находятся автоматически)
 
-Внутри TUI: /help — команды, /model — выбрать модель, /api — ключи и эндпоинты.
+Внутри TUI: /help — команды, /model — выбрать модель, /api — ключи и эндпоинты,
+/connect — связать машину с KEYTRON Prime.
 
 Файлы:
   ~/.allan/config.toml   настройки (без ключей)
@@ -280,7 +201,8 @@ func printUsage() {
 
 Примеры:
   allan key set openrouter
+  allan connect                       # печатает ссылку и ждёт код со страницы
+  allan serve --listen 127.0.0.1:8790
   allan --backend opencode --model deepseek-v4-flash-free
   allan --workspace ~/git/project --resume
-`, version, strings.Join(knownProviders(), ", "))
-}
+`

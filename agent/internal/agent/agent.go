@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -41,38 +42,49 @@ type Event struct {
 }
 
 type Stats struct {
-	ToolCalls     int
-	SuccessCalls  int
-	FailedCalls   int
-	TokensIn      int
-	TokensOut     int
+	ToolCalls    int
+	SuccessCalls int
+	FailedCalls  int
+	TokensIn     int
+	TokensOut    int
 }
 
 type Agent struct {
-	Cfg      *config.Config
-	Backend  backend.Backend
-	Tools    *tools.Registry
-	Memory   *memory.Memory
-	Skills   *skills.Engine
-	Vector   vector.Store
+	Cfg       *config.Config
+	Backend   backend.Backend
+	Tools     *tools.Registry
+	Memory    *memory.Memory
+	Skills    *skills.Engine
+	Vector    vector.Store
 	Workspace string
 	SessionID string
-	History  []backend.Message
-	Stats    Stats
-	Scratch  *Scratchpad
+	History   []backend.Message
+	Stats     Stats
+	Scratch   *Scratchpad
+
+	// lastSkillAt throttles the Skill Engine so a chatty session does not fill
+	// the database with one-sentence "skills".
+	lastSkillAt time.Time
+
+	// lastInput / lastUserIdx make the current request repeatable: lastUserIdx
+	// points at the user's message in History, so an interrupted attempt can be
+	// rolled back and retried on another model.
+	lastInput   string
+	lastUserIdx int
 }
 
 func New(cfg *config.Config, b backend.Backend, reg *tools.Registry, mem *memory.Memory, sk *skills.Engine, vec vector.Store, workspace string) *Agent {
 	return &Agent{
-		Cfg:       cfg,
-		Backend:   b,
-		Tools:     reg,
-		Memory:    mem,
-		Skills:    sk,
-		Vector:    vec,
-		Workspace: workspace,
-		SessionID: uuid.NewString(),
-		Scratch:   &Scratchpad{},
+		lastUserIdx: -1,
+		Cfg:         cfg,
+		Backend:     b,
+		Tools:       reg,
+		Memory:      mem,
+		Skills:      sk,
+		Vector:      vec,
+		Workspace:   workspace,
+		SessionID:   uuid.NewString(),
+		Scratch:     &Scratchpad{},
 	}
 }
 
@@ -120,15 +132,39 @@ func truncateString(s string, n int) string {
 
 // Run drives one ReAct cycle for the given user input. Events are pushed to the channel.
 func (a *Agent) Run(ctx context.Context, userInput string, events chan<- Event) {
+	a.run(ctx, userInput, events, true)
+}
+
+// Retry repeats the last request, e.g. after the model was switched because the
+// previous one hung or ran out of quota. The interrupted attempt is dropped from
+// the history first, so the model never sees the request twice.
+func (a *Agent) Retry(ctx context.Context, events chan<- Event) error {
+	if a.lastInput == "" {
+		return errors.New("нечего повторять: в этой сессии ещё не было запроса")
+	}
+	if a.lastUserIdx >= 0 && a.lastUserIdx <= len(a.History) {
+		a.History = a.History[:a.lastUserIdx]
+	}
+	a.run(ctx, a.lastInput, events, false)
+	return nil
+}
+
+// LastInput is the last request the user sent, empty before the first turn.
+func (a *Agent) LastInput() string { return a.lastInput }
+
+func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, appendUser bool) {
 	defer close(events)
 	startTime := time.Now()
 	startToolCalls := a.Stats.ToolCalls
 
-	if a.Memory != nil {
-		_ = a.Memory.AppendMessage(ctx, a.SessionID, "user", userInput)
+	if appendUser {
+		if a.Memory != nil {
+			_ = a.Memory.AppendMessage(ctx, a.SessionID, "user", userInput)
+		}
+		a.lastUserIdx = len(a.History)
+		a.History = append(a.History, backend.Message{Role: backend.RoleUser, Content: userInput})
 	}
-
-	a.History = append(a.History, backend.Message{Role: backend.RoleUser, Content: userInput})
+	a.lastInput = userInput
 
 	maxCalls := a.Cfg.Agent.MaxToolCalls
 	if maxCalls <= 0 {
@@ -242,19 +278,36 @@ func (a *Agent) systemWithSkills(ctx context.Context, userInput string) string {
 	return system
 }
 
+// maybeSaveSkill turns a solved task into a reusable skill.
+//
+// The gate matters: a greeting, "thanks" or any other small talk is not a
+// pattern worth storing, and neither is a turn that only read one file. A skill
+// is only saved when the turn really used tools, the request was substantial,
+// the same skill does not already exist, and the cooldown since the last one
+// has passed.
 func (a *Agent) maybeSaveSkill(ctx context.Context, userInput string, started time.Time, startTC int, usedTools []string, events chan<- Event) {
-	if a.Skills == nil {
+	if a.Skills == nil || !a.Cfg.Agent.SkillEnabled {
 		return
 	}
 	tcCount := a.Stats.ToolCalls - startTC
-	dur := time.Since(started)
 	minTC := a.Cfg.Agent.SkillMinToolCalls
 	if minTC <= 0 {
 		minTC = 3
 	}
-	if tcCount < minTC && dur < 10*time.Second {
+	if tcCount < minTC {
 		return
 	}
+	if isTrivialRequest(userInput) {
+		return
+	}
+	cooldown := time.Duration(a.Cfg.Agent.SkillCooldown) * time.Second
+	if cooldown <= 0 {
+		cooldown = 5 * time.Minute
+	}
+	if !a.lastSkillAt.IsZero() && time.Since(a.lastSkillAt) < cooldown {
+		return
+	}
+	dur := time.Since(started)
 
 	prompt := []backend.Message{
 		{Role: backend.RoleSystem, Content: SkillExtractPrompt},
@@ -280,6 +333,14 @@ func (a *Agent) maybeSaveSkill(ctx context.Context, userInput string, started ti
 	if raw.Name == "" {
 		return
 	}
+	// A skill is only worth keeping if it says something new.
+	if existing, err := a.Skills.List(ctx); err == nil {
+		for _, s := range existing {
+			if strings.EqualFold(s.Name, raw.Name) {
+				return
+			}
+		}
+	}
 	skill := &skills.Skill{
 		Name:         raw.Name,
 		Description:  raw.Description,
@@ -288,8 +349,31 @@ func (a *Agent) maybeSaveSkill(ctx context.Context, userInput string, started ti
 		ToolSequence: raw.ToolSequence,
 	}
 	if err := a.Skills.Save(ctx, skill); err == nil {
+		a.lastSkillAt = time.Now()
 		events <- Event{Kind: "skill_saved", Skill: skill}
 	}
+}
+
+// trivialPrefixes are the openings that never justify a stored skill.
+var trivialPrefixes = []string{
+	"привет", "здравствуй", "здравствуйте", "добрый день", "доброе утро", "добрый вечер",
+	"пока", "до свидания", "спасибо", "благодарю", "ок", "окей", "ага", "угу", "да", "нет",
+	"кто ты", "что ты умеешь", "что ты можешь", "как дела", "hello", "hi", "hey", "thanks",
+}
+
+// isTrivialRequest filters out small talk and one-liners that only need an answer.
+func isTrivialRequest(s string) bool {
+	low := strings.ToLower(strings.TrimSpace(s))
+	if low == "" {
+		return true
+	}
+	for _, p := range trivialPrefixes {
+		if strings.HasPrefix(low, p) {
+			return true
+		}
+	}
+	// Very short requests rarely contain a reusable multi-step pattern.
+	return len([]rune(low)) < 12
 }
 
 func extractJSON(s string) string {
@@ -304,4 +388,6 @@ func extractJSON(s string) string {
 func (a *Agent) ClearHistory() {
 	a.History = nil
 	a.Scratch = &Scratchpad{}
+	a.lastInput = ""
+	a.lastUserIdx = -1
 }

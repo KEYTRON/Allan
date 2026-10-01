@@ -32,6 +32,9 @@ type AgentConfig struct {
 	ScratchpadKeepLastResult int     `toml:"scratchpad_keep_last_results"`
 	SkillMinToolCalls        int     `toml:"skill_min_tool_calls"`
 	SkillSimilarityThreshold float64 `toml:"skill_similarity_threshold"`
+	SkillEnabled             bool    `toml:"skill_enabled"`
+	// SkillCooldown is the minimum pause between two saved skills, in seconds.
+	SkillCooldown int `toml:"skill_cooldown"`
 }
 
 type BackendConfig struct {
@@ -50,6 +53,8 @@ type ProviderConfig struct {
 type TUIConfig struct {
 	Theme          string `toml:"theme"`
 	ShowTimestamps bool   `toml:"show_timestamps"`
+	// Lang is the interface language: ru (default), en or de.
+	Lang string `toml:"lang"`
 }
 
 type MemoryConfig struct {
@@ -89,6 +94,8 @@ func Default() *Config {
 			ScratchpadKeepLastResult: 2,
 			SkillMinToolCalls:        3,
 			SkillSimilarityThreshold: 0.75,
+			SkillEnabled:             true,
+			SkillCooldown:            300,
 		},
 		Backend: BackendConfig{
 			Type:  "ollama",
@@ -98,6 +105,7 @@ func Default() *Config {
 		TUI: TUIConfig{
 			Theme:          "dark",
 			ShowTimestamps: false,
+			Lang:           "ru",
 		},
 		Memory: MemoryConfig{
 			Enabled:                  true,
@@ -142,12 +150,36 @@ func ConfigPath() (string, error) {
 	return filepath.Join(dir, "config.toml"), nil
 }
 
+// OpenSecrets exposes the secret store for callers outside the config package
+// (the pairing flow keeps the worker token there).
+func OpenSecrets(dir string) secrets.Store {
+	return secrets.Open(dir)
+}
+
 func Expand(p string) string {
 	if strings.HasPrefix(p, "~/") {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, p[2:])
 	}
 	return p
+}
+
+// LangFromFile reads only the interface language from config.toml, without
+// touching the secret store: the CLI needs it before anything else is parsed.
+func LangFromFile() string {
+	path, err := ConfigPath()
+	if err != nil {
+		return ""
+	}
+	var probe struct {
+		TUI struct {
+			Lang string `toml:"lang"`
+		} `toml:"tui"`
+	}
+	if _, err := toml.DecodeFile(path, &probe); err != nil {
+		return ""
+	}
+	return probe.TUI.Lang
 }
 
 func Load() (*Config, bool, error) {

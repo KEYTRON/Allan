@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,19 +12,22 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// ErrNoSession means there is nothing to resume yet.
+var ErrNoSession = errors.New("нет завершённых сессий")
+
 type Memory struct {
 	db *sql.DB
 }
 
 type Session struct {
-	ID         string
-	StartedAt  time.Time
-	EndedAt    *time.Time
-	Backend    string
-	Model      string
-	ToolCalls  int
-	TokensIn   int
-	TokensOut  int
+	ID        string
+	StartedAt time.Time
+	EndedAt   *time.Time
+	Backend   string
+	Model     string
+	ToolCalls int
+	TokensIn  int
+	TokensOut int
 }
 
 type ConvMessage struct {
@@ -111,6 +115,47 @@ func (m *Memory) StartSession(ctx context.Context, s *Session) error {
 	return err
 }
 
+// ReopenSession continues a finished session under its own id, so a resumed
+// conversation appends to the same history instead of forking a new one.
+func (m *Memory) ReopenSession(ctx context.Context, id string, at time.Time, backend, model string) error {
+	_, err := m.db.ExecContext(ctx,
+		`UPDATE sessions SET started_at = ?, ended_at = NULL, backend = ?, model = ? WHERE id = ?`,
+		at, backend, model, id)
+	return err
+}
+
+// LastSessionID returns the most recently finished session.
+func (m *Memory) LastSessionID(ctx context.Context) (string, error) {
+	var id string
+	err := m.db.QueryRowContext(ctx,
+		`SELECT id FROM sessions WHERE ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoSession
+	}
+	return id, err
+}
+
+// SessionIDs lists finished sessions, newest first, for `/resume` without arguments.
+func (m *Memory) SessionIDs(ctx context.Context, n int) ([]Session, error) {
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT id, started_at, ended_at, backend, model, tool_calls, tokens_in, tokens_out
+		 FROM sessions WHERE ended_at IS NOT NULL ORDER BY started_at DESC LIMIT ?`, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Session
+	for rows.Next() {
+		var s Session
+		if err := rows.Scan(&s.ID, &s.StartedAt, &s.EndedAt, &s.Backend, &s.Model,
+			&s.ToolCalls, &s.TokensIn, &s.TokensOut); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func (m *Memory) EndSession(ctx context.Context, s *Session) error {
 	now := time.Now()
 	s.EndedAt = &now
@@ -128,18 +173,22 @@ func (m *Memory) AppendMessage(ctx context.Context, sessionID, role, content str
 }
 
 func (m *Memory) LastSessionMessages(ctx context.Context, n int) ([]ConvMessage, error) {
-	row := m.db.QueryRowContext(ctx,
-		`SELECT id FROM sessions WHERE ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`)
-	var sid string
-	if err := row.Scan(&sid); err != nil {
-		if err == sql.ErrNoRows {
+	sid, err := m.LastSessionID(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNoSession) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	return m.SessionMessages(ctx, sid, n)
+}
+
+// SessionMessages returns the last n messages of one concrete session, oldest
+// first. The remote client uses it to redraw a conversation it left earlier.
+func (m *Memory) SessionMessages(ctx context.Context, sessionID string, n int) ([]ConvMessage, error) {
 	rows, err := m.db.QueryContext(ctx,
 		`SELECT id, session_id, role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?`,
-		sid, n)
+		sessionID, n)
 	if err != nil {
 		return nil, err
 	}

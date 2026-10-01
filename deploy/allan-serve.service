@@ -1,0 +1,27 @@
+# Allan HTTP-воркер для телефона и сайта. User-сервис: root не нужен.
+#
+#   systemctl --user link ~/git/Allan/deploy/allan-serve.service
+#   systemctl --user enable --now allan-serve
+#   journalctl --user -u allan-serve -f
+#
+# Токен берётся из системного keyring (его кладёт `allan connect`).
+# Слушаем только Tailscale: наружу воркер выставляет сервер-шлюз.
+[Unit]
+Description=Allan agent worker (HTTP for the phone app and the site)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/git/Allan/agent/bin/allan serve --listen 100.118.140.15:8790
+Restart=on-failure
+RestartSec=5
+# Агент умеет выполнять команды от вашего имени: не даём ему systemd-окружение
+# целиком и ограничиваем то, что не нужно для работы.
+NoNewPrivileges=false
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

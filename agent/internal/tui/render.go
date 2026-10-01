@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/keytron/allan/agent/internal/i18n"
 	"sort"
 	"strings"
 	"sync"
@@ -123,7 +124,7 @@ func renderToolBlock(m Message, width int) string {
 		out = append(out, StyleDim.Render(lead)+StyleMuted.Render(xansi.Truncate(l, maxInt(10, width-6), "…")))
 	}
 	if extra > 0 {
-		out = append(out, StyleDim.Render(fmt.Sprintf("    … ещё %d строк", extra)))
+		out = append(out, StyleDim.Render(fmt.Sprintf(i18n.S("    … ещё %d строк"), extra)))
 	}
 	return call + "\n" + strings.Join(out, "\n")
 }

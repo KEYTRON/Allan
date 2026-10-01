@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# OpenRC: /etc/init.d/allan-serve  (Void, Gentoo, Alpine)
+#   rc-update add allan-serve default
+#   rc-service allan-serve start
+#   rc-service allan-serve status
+#
+# Токен берётся из системного keyring (его кладёт `allan connect`).
+name="allan-serve"
+description="Allan agent worker (HTTP for the phone app and the site)"
+
+command="/home/keytron46/git/Allan/agent/bin/allan"
+command_args="serve --listen 100.118.140.15:8790"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner "$USER" --mode 0755 "$HOME/.allan"
+}

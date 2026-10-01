@@ -9,6 +9,7 @@ import (
 
 	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/backend"
+	"github.com/keytron/allan/agent/internal/i18n"
 	"golang.org/x/term"
 )
 
@@ -27,7 +28,7 @@ const keyUsage = `allan key — API-ключи провайдеров (хран�
 func runKey(args []string) int {
 	providers := knownProviders()
 	if len(args) == 0 {
-		fmt.Printf(keyUsage, strings.Join(providers, ", "))
+		fmt.Print(i18n.F(keyUsage, strings.Join(providers, ", ")))
 		return 0
 	}
 	cfg, _, err := config.Load()
@@ -117,7 +118,7 @@ func runKey(args []string) int {
 		}
 		fmt.Println("Удалено:", name)
 	default:
-		fmt.Printf(keyUsage, strings.Join(providers, ", "))
+		fmt.Print(i18n.F(keyUsage, strings.Join(providers, ", ")))
 		return 2
 	}
 	return 0

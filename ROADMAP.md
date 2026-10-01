@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.3.4
+Stage: 0.4.0
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -31,8 +31,15 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Keys in the system keyring (0600 file fallback), custom endpoints, `allan key` with hidden input
 - [x] GigaChat (Sber): OAuth with the authorization key, bundled Russian Trusted Root CA, function calling
 - [x] Model caption under replies, `/compact` to summarize history
+- [x] Interface languages: ru (source), en, de — `/lang`, `--lang`, `tui.lang` in the config
+- [x] `allan serve`: headless HTTP/SSE worker for the phone app and the site, token auth, per-client sessions
+- [x] `allan connect` and `/connect`: pair the machine with KEYTRON Prime (one-time code from the site, token in the keyring)
+- [x] `--resume [id]` really resumes: history is loaded and shown; a specific session id can be given
+- [x] Retry instead of retyping: after `/model` an interrupted request repeats on the new model (`/retry` too)
+- [x] Skill Engine no longer saves skills for greetings and one-tool turns (cooldown, duplicate check, `skill_enabled`)
 - [ ] MCP support: connect MCP servers (stdio and HTTP) as agent tools
 - [ ] Test the agent on free models (OpenRouter free, Ollama Cloud Free): tool calls, long sessions
+- [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases
 - [ ] CI: build and tests on every push

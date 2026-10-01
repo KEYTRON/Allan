@@ -1,0 +1,9 @@
+#!/bin/sh
+# runit (Void Linux, K1OS): /etc/sv/allan-serve/run
+#   ln -s ~/git/Allan/deploy/allan-serve.run /etc/sv/allan-serve/run
+#   sv up allan-serve
+#
+# Токен берётся из системного keyring (его кладёт `allan connect`).
+exec 2>&1
+cd "${HOME:-/home/keytron46}" || exit 1
+exec /home/keytron46/git/Allan/agent/bin/allan serve --listen 100.118.140.15:8790

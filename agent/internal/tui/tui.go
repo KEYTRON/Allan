@@ -20,6 +20,9 @@ import (
 	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/agent"
 	"github.com/keytron/allan/agent/internal/backend"
+	"github.com/keytron/allan/agent/internal/i18n"
+	"github.com/keytron/allan/agent/internal/link"
+	"github.com/keytron/allan/agent/internal/memory"
 )
 
 // bubbles/textarea draws the cursor over the placeholder's first byte,
@@ -65,6 +68,12 @@ type Model struct {
 	ptyActive bool
 	ptyCmd    string
 	ptyOutput string
+
+	// interrupted marks a turn that never reached a final answer (Esc, backend
+	// error, crash). After a /model switch such a turn is repeated on the new
+	// model instead of leaving the user to retype the request.
+	interrupted bool
+	turnInput   string
 
 	thinking      bool
 	thinkingSince time.Time
@@ -154,7 +163,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.appendMsg(Message{Kind: MsgError, Text: "/compact: " + humanError(msg.err.Error())})
 		} else {
-			m.appendMsg(Message{Kind: MsgSys, Text: "История сжата. Модель дальше видит эту сводку:"})
+			m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("История сжата. Модель дальше видит эту сводку:")})
 			m.appendMsg(Message{Kind: MsgAllan, Text: msg.summary, Meta: m.turnMeta()})
 		}
 	case agentDoneMsg:
@@ -206,13 +215,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return tea.Quit, true
 		default:
 			m.quitArmedAt = time.Now()
-			m.appendMsg(Message{Kind: MsgSys, Text: "Нажмите Ctrl+C ещё раз, чтобы выйти"})
+			m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Нажмите Ctrl+C ещё раз, чтобы выйти")})
 		}
 		return nil, true
 	}
 	if msg.Type == tea.KeyEsc && m.thinking && m.cancelRun != nil {
 		m.cancelRun()
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Остановлено"})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Остановлено")})
 		return nil, true
 	}
 	if m.picker != nil {
@@ -375,13 +384,13 @@ func (m *Model) apiCompletions(input string) []SlashCommand {
 			prefix = parts[1]
 		}
 		return filterCompletions(prefix, []SlashCommand{
-			{Name: "add", Help: "добавить API-ключ", Insert: "/api add "},
-			{Name: "key", Help: "заменить ключ провайдера", Insert: "/api key "},
-			{Name: "endpoint", Help: "свой эндпоинт (base_url)", Insert: "/api endpoint "},
-			{Name: "list", Help: "показать сохранённые провайдеры", Insert: "/api list"},
-			{Name: "refresh", Help: "опросить модели всех провайдеров", Insert: "/api refresh"},
-			{Name: "use", Help: "сделать провайдера активным", Insert: "/api use "},
-			{Name: "remove", Help: "удалить провайдера", Insert: "/api remove "},
+			{Name: "add", Help: i18n.S("добавить API-ключ"), Insert: "/api add "},
+			{Name: "key", Help: i18n.S("заменить ключ провайдера"), Insert: "/api key "},
+			{Name: "endpoint", Help: i18n.S("свой эндпоинт (base_url)"), Insert: "/api endpoint "},
+			{Name: "list", Help: i18n.S("показать сохранённые провайдеры"), Insert: "/api list"},
+			{Name: "refresh", Help: i18n.S("опросить модели всех провайдеров"), Insert: "/api refresh"},
+			{Name: "use", Help: i18n.S("сделать провайдера активным"), Insert: "/api use "},
+			{Name: "remove", Help: i18n.S("удалить провайдера"), Insert: "/api remove "},
 		})
 	}
 	sub := ""
@@ -409,7 +418,7 @@ func (m *Model) modelCompletions(input string) []SlashCommand {
 	if len(m.modelCatalog) == 0 {
 		return []SlashCommand{{
 			Name:   "refresh",
-			Help:   "сначала обновить список моделей",
+			Help:   i18n.S("сначала обновить список моделей"),
 			Insert: "/api refresh",
 		}}
 	}
@@ -419,7 +428,7 @@ func (m *Model) modelCompletions(input string) []SlashCommand {
 		label := fmt.Sprintf("%d. %s/%s", i+1, choice.Provider, choice.Model)
 		insert := fmt.Sprintf("/model %d", i+1)
 		if prefix == "" || strings.Contains(strings.ToLower(label), strings.ToLower(prefix)) {
-			out = append(out, SlashCommand{Name: label, Help: "выбрать модель", Insert: insert})
+			out = append(out, SlashCommand{Name: label, Help: i18n.S("выбрать модель"), Insert: insert})
 		}
 	}
 	return out
@@ -431,17 +440,39 @@ func (m *Model) submit(input string) tea.Cmd {
 	if strings.HasPrefix(input, "/") {
 		return m.handleSlash(input)
 	}
+	m.turnInput = input
+	m.interrupted = false
+	return m.startTurn(func(ctx context.Context, events chan agent.Event) {
+		m.Ag.Run(ctx, input, events)
+	})
+}
 
+// retryLast repeats the interrupted request on the current model, reusing the
+// user's own wording instead of making them type it again — the usual case is a
+// weak local model that hung, followed by /model with a cloud one.
+func (m *Model) retryLast(reason string) tea.Cmd {
+	if m.Ag.LastInput() == "" || m.thinking {
+		return nil
+	}
+	m.appendMsg(Message{Kind: MsgSys, Text: i18n.F("Повторяю последний запрос на %s/%s%s",
+		m.Cfg.Backend.Type, m.Cfg.Backend.Model, reason)})
+	m.interrupted = false
+	return m.startTurn(func(ctx context.Context, events chan agent.Event) {
+		_ = m.Ag.Retry(ctx, events)
+	})
+}
+
+func (m *Model) startTurn(run func(ctx context.Context, events chan agent.Event)) tea.Cmd {
 	m.thinking = true
 	m.thinkingSince = time.Now()
-	m.thinkingLabel = "Allan думает"
+	m.thinkingLabel = i18n.S("Allan думает")
 	m.turnTokens = m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut
 	m.turnModel = m.Cfg.Backend.Model
 	m.recalcLayout()
 	events := make(chan agent.Event, 32)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelRun = cancel
-	go m.Ag.Run(ctx, input, events)
+	go run(ctx, events)
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		ev, ok := <-events
@@ -558,12 +589,18 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		m.appendMsg(Message{Kind: MsgSys, Text: text})
 	case "/memory":
 		if m.Ag.Memory == nil {
-			m.appendMsg(Message{Kind: MsgWarn, Text: "Память отключена"})
+			m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Память отключена")})
 		} else {
 			m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Память включена\nsession=%s\ndb=%s\nchromadb=%s\ntool_calls=%d\ntokens_in=%d\ntokens_out=%d",
 				m.Ag.SessionID, config.Expand(m.Cfg.Memory.DBPath), m.Cfg.Memory.ChromaDBURL,
 				m.Ag.Stats.ToolCalls, m.Ag.Stats.TokensIn, m.Ag.Stats.TokensOut)})
 		}
+	case "/connect":
+		m.handleConnect(args)
+	case "/resume", "/continue":
+		m.handleResume(args)
+	case "/lang", "/language":
+		m.handleLang(args)
 	case "/skills":
 		m.handleSkills(args)
 	case "/api":
@@ -575,7 +612,7 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 			m.openProviderPicker()
 			return nil
 		}
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Смена бэкенда требует перезапуска. Установлено в конфиге: " + args[0]})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Смена бэкенда требует перезапуска. Установлено в конфиге: ") + args[0]})
 		m.Cfg.Backend.Type = args[0]
 		_ = config.Save(m.Cfg)
 	default:
@@ -584,14 +621,129 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 			expanded := strings.TrimSpace(matches[0].Name + " " + strings.Join(args, " "))
 			return m.handleSlash(expanded)
 		}
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Неизвестная команда: " + cmd})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Неизвестная команда: ") + cmd})
 	}
 	return nil
 }
 
+// handleLang switches the interface language at runtime and remembers it.
+func (m *Model) handleLang(args []string) {
+	if len(args) == 0 {
+		cur := i18n.Get()
+		var sb strings.Builder
+		sb.WriteString(i18n.S("Язык интерфейса: %s\n"))
+		for _, l := range i18n.Order {
+			mark := "  "
+			if l == cur {
+				mark = "• "
+			}
+			fmt.Fprintf(&sb, "%s%s — /lang %s\n", mark, l.Label(), l)
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: i18n.F(strings.TrimRight(sb.String(), "\n"), i18n.Get().Label())})
+		return
+	}
+	lang := i18n.Normalize(args[0])
+	if lang == "" {
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Язык не найден: %s. Доступны: ru, en, de.")})
+		return
+	}
+	i18n.Set(lang)
+	m.Cfg.TUI.Lang = string(lang)
+	if err := config.Save(m.Cfg); err != nil {
+		m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
+	}
+	// Перерисовать всё, что уже на экране, на новом языке.
+	for i := range m.messages {
+		m.messages[i].rendered = ""
+	}
+	m.refreshContent()
+	m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Язык интерфейса: %s")})
+}
+
+// handleResume loads a finished session into the current conversation, either
+// the one named as an argument or the most recent one.
+func (m *Model) handleResume(args []string) {
+	if m.Ag.Memory == nil {
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Память отключена, продолжать нечего")})
+		return
+	}
+	ctx := context.Background()
+	if len(args) == 0 {
+		sessions, err := m.Ag.Memory.SessionIDs(ctx, 8)
+		if err != nil || len(sessions) == 0 {
+			m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Нет завершённых сессий")})
+			return
+		}
+		var sb strings.Builder
+		sb.WriteString("Последние сессии (/resume <id>):\n")
+		for i, s := range sessions {
+			when := "?"
+			if !s.StartedAt.IsZero() {
+				when = s.StartedAt.Format("02.01 15:04")
+			}
+			fmt.Fprintf(&sb, "  %d. %s  %s/%s  сообщений: %d\n", i+1, s.ID, s.Backend, s.Model, s.ToolCalls)
+			_ = when
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: strings.TrimRight(sb.String(), "\n")})
+		return
+	}
+	id := args[0]
+	msgs, err := m.Ag.Memory.SessionMessages(ctx, id, 200)
+	if err != nil || len(msgs) == 0 {
+		m.appendMsg(Message{Kind: MsgError, Text: i18n.S("Сессия не найдена или пуста: ") + id})
+		return
+	}
+	if err := m.Ag.Memory.ReopenSession(ctx, id, time.Now(), m.Cfg.Backend.Type, m.Cfg.Backend.Model); err != nil {
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Сессия загружена, но не переоткрыта: ") + err.Error()})
+	}
+	m.Ag.SessionID = id
+	m.Restore(msgs)
+}
+
+// handleConnect pairs this machine with KEYTRON Prime so the phone and the
+// site can reach the agent. Without arguments it only shows the status.
+func (m *Model) handleConnect(args []string) {
+	base := link.ServerURL("")
+	if len(args) == 0 {
+		st, token, err := link.Load()
+		if err != nil {
+			m.appendMsg(Message{Kind: MsgSys, Text: link.Instructions(base)})
+			return
+		}
+		out := link.Summary(st, token)
+		if token == "" {
+			out += "\n\n" + link.Instructions(base)
+		} else {
+			out += "\n\nВоркер для телефона и сайта запускается отдельно: allan serve"
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: out})
+		return
+	}
+	if args[0] == "reset" || args[0] == "forget" {
+		if err := link.Reset(); err != nil {
+			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+			return
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Связь с KEYTRON Prime удалена, токен стёрт.")})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	st, token, err := link.Exchange(ctx, base, args[0], link.Meta{Version: m.Version})
+	if err != nil {
+		m.appendMsg(Message{Kind: MsgError, Text: i18n.S("Код не принят: ") + err.Error()})
+		return
+	}
+	if err := link.Save(st, token); err != nil {
+		m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
+		return
+	}
+	m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Машина связана с ") + st.Server + "\nтокен " + link.MaskToken(token) + " в системном keyring\nзапустите воркер: allan serve"})
+}
+
 func (m *Model) handleSkills(args []string) {
 	if m.Ag.Skills == nil {
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Skills engine не инициализирован"})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Skills engine не инициализирован")})
 		return
 	}
 	ctx := context.Background()
@@ -602,7 +754,7 @@ func (m *Model) handleSkills(args []string) {
 			return
 		}
 		if len(skills) == 0 {
-			m.appendMsg(Message{Kind: MsgSys, Text: "Навыков пока нет."})
+			m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Навыков пока нет.")})
 			return
 		}
 		var sb strings.Builder
@@ -635,7 +787,7 @@ func (m *Model) handleSkills(args []string) {
 			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
 			return
 		}
-		m.appendMsg(Message{Kind: MsgSys, Text: "Навык удалён."})
+		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Навык удалён.")})
 	case "export":
 		out, err := m.Ag.Skills.Export(ctx)
 		if err != nil {
@@ -644,7 +796,7 @@ func (m *Model) handleSkills(args []string) {
 		}
 		m.appendMsg(Message{Kind: MsgSys, Text: out})
 	default:
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды: show, delete, export"})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Подкоманды: show, delete, export")})
 	}
 }
 
@@ -704,7 +856,7 @@ func (m *Model) handleAPI(args []string) {
 		if len(args) >= 4 {
 			typ = strings.ToLower(args[3])
 			if typ != "openai" && typ != "anthropic" {
-				m.appendMsg(Message{Kind: MsgWarn, Text: "Тип эндпоинта: openai (OpenAI-совместимый) или anthropic"})
+				m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Тип эндпоинта: openai (OpenAI-совместимый) или anthropic")})
 				return
 			}
 		}
@@ -739,7 +891,7 @@ func (m *Model) handleAPI(args []string) {
 		delete(m.Cfg.Providers, name)
 		if m.Cfg.Secrets != nil {
 			if err := m.Cfg.Secrets.Delete(name); err != nil {
-				m.appendMsg(Message{Kind: MsgError, Text: "ключ не удалён: " + err.Error()})
+				m.appendMsg(Message{Kind: MsgError, Text: i18n.S("ключ не удалён: ") + err.Error()})
 			}
 		}
 		if m.Cfg.Backend.Type == name {
@@ -749,14 +901,14 @@ func (m *Model) handleAPI(args []string) {
 			m.appendMsg(Message{Kind: MsgError, Text: err.Error()})
 			return
 		}
-		m.appendMsg(Message{Kind: MsgSys, Text: "Провайдер и его ключ удалены: " + name})
+		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Провайдер и его ключ удалены: ") + name})
 	case "refresh":
 		if err := m.refreshModelCatalog(context.Background()); err != nil {
 			m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
 		}
 		m.appendMsg(Message{Kind: MsgSys, Text: m.renderModelCatalog()})
 	default:
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Подкоманды /api: list, add, key, endpoint, use, remove, refresh"})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Подкоманды /api: list, add, key, endpoint, use, remove, refresh")})
 	}
 }
 
@@ -825,7 +977,7 @@ func (m *Model) handleModel(args []string) {
 	}
 	choice, ok := m.resolveModelChoice(strings.Join(args, " "))
 	if !ok {
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Модель не найдена. Сначала выполните /model или /api refresh, затем /model <номер>."})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Модель не найдена. Сначала выполните /model или /api refresh, затем /model <номер>.")})
 		return
 	}
 	m.switchBackendModel(choice.Provider, choice.Model)
@@ -994,36 +1146,8 @@ func (m *Model) switchBackendModel(provider, model string) {
 }
 
 func backendForProvider(provider string, cfg *config.Config, model string) (backend.Backend, error) {
-	provider = normalizeProvider(provider)
-	if p, ok := cfg.Providers[provider]; ok {
-		tmp := *cfg
-		tmp.Backend.Type = provider
-		tmp.Backend.Model = model
-		tmp.Backend.BaseURL = p.BaseURL
-		tmp.Backend.APIKey = p.APIKey
-		if p.Type != "" {
-			tmp.Backend.Type = p.Type
-			if provider != p.Type && p.Type == "openai" {
-				return backend.NewOpenAILike(provider, p.BaseURL, p.APIKey, model), nil
-			}
-		}
-		return backend.New(&tmp)
-	}
-	switch {
-	case !isKnownProvider(provider):
-		return nil, fmt.Errorf("неизвестный провайдер %s: добавьте эндпоинт /api endpoint %s <base_url>", provider, provider)
-	case !isLocalProvider(provider) && provider != "anthropic" && provider != "openai":
-		return nil, fmt.Errorf("%s требует API-ключ: /api add %s <api_key>", provider, provider)
-	default:
-		tmp := *cfg
-		tmp.Backend.Type = provider
-		tmp.Backend.Model = model
-		tmp.Backend.BaseURL = defaultBaseURL(provider)
-		if isLocalProvider(provider) {
-			tmp.Backend.APIKey = ""
-		}
-		return backend.New(&tmp)
-	}
+	// Shared with the `allan serve` worker, so /model behaves the same everywhere.
+	return backend.ForProvider(provider, cfg, model)
 }
 
 func normalizeProvider(name string) string { return backend.NormalizeProvider(name) }
@@ -1358,7 +1482,7 @@ func (m *Model) openModelPicker(provider string) {
 		})
 	}
 	if len(items) == 0 {
-		m.appendMsg(Message{Kind: MsgWarn, Text: "Модели не найдены. Добавьте ключ: /api add <provider> <api_key>" + m.hugeCatalogHint()})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Модели не найдены. Добавьте ключ: /api add <provider> <api_key>") + m.hugeCatalogHint()})
 		return
 	}
 	title := "Выбор модели"
@@ -1425,6 +1549,30 @@ func humanError(text string) string {
 	}
 	prefix = strings.TrimPrefix(prefix, "backend error: ")
 	return prefix + ": " + msg
+}
+
+// Restore puts a resumed conversation back on screen. Without it --resume
+// would load the context for the model while the user stares at an empty
+// terminal and thinks the resume did nothing.
+func (m *Model) Restore(msgs []memory.ConvMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+	m.messages = nil
+	for _, msg := range msgs {
+		switch msg.Role {
+		case "user":
+			m.appendMsg(Message{Kind: MsgYou, Text: msg.Content})
+		case "assistant":
+			m.appendMsg(Message{Kind: MsgAllan, Text: msg.Content})
+		}
+	}
+	m.appendMsg(Message{
+		Kind: MsgSys,
+		Text: fmt.Sprintf("Продолжена сессия %s — %d сообщений. Всё дальше дописывается в неё же.",
+			m.Ag.SessionID, len(msgs)),
+	})
+	m.refreshContent()
 }
 
 // Notice shows a system line under the welcome card (used for startup warnings).

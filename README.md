@@ -199,10 +199,126 @@ Flags:
   --backend string    Override backend from config
   --model string      Override model from config
   --workspace string  Set working directory (default: current dir)
-  --resume            Resume last session
+  --resume [id]       Resume the last session, or a specific one by id
+  --lang ru|en|de     Interface language
   --version           Show version
   --no-memory         Disable memory for this session
+
+Subcommands:
+  allan key set|list|rm    Provider API keys (hidden input, system keyring)
+  allan connect [code]     Pair this machine with KEYTRON Prime
+  allan serve              HTTP worker for the phone app and the site
 ```
+
+---
+
+## Языки интерфейса
+
+Русский — исходный язык, английский и немецкий живут в каталоге
+`internal/i18n/catalog.go` (генерируется `internal/i18n/gen.py`).
+
+```bash
+allan --lang en            # один запуск
+allan --lang de help       # справка на нужном языке
+```
+
+Внутри TUI: `/lang` переключает язык на лету и запоминает его в `tui.lang`
+конфига. Тест `TestEveryUserFacingStringIsTranslated` не даст добавить строку
+без перевода.
+
+---
+
+## Allan как воркер: `allan serve` и `allan connect`
+
+Агент умеет работать без терминала: HTTP-воркер отдаёт его телефону и сайту.
+Сами тулзы, ключи и память остаются на этой машине — воркер только отвечает
+на запросы и никуда сам не ходит.
+
+### Привязка к KEYTRON Prime
+
+```bash
+allan connect
+```
+
+Команда печатает ссылку на страницу привязки. После входа на сайт страница
+выдаёт одноразовый код; Allan обменивает его на общий токен и кладёт его в
+системный keyring. То же самое делает `/connect` внутри TUI, а `/connect <код>`
+принимает код, минуя подсказки.
+
+```bash
+allan connect status   # что подключено
+allan connect url      # только ссылка
+allan connect reset    # забыть сервер и стереть токен
+```
+
+### Запуск воркера
+
+```bash
+allan serve                                  # только localhost:8790
+allan serve --listen 100.118.140.15:8790     # Tailscale, для сервера-шлюза
+```
+
+Токен берётся из keyring (то есть из `allan connect`), из `--token` или из
+`ALLAN_WORKER_TOKEN`. Пустой токен — воркер не стартует: агент умеет выполнять
+команды от вашего имени, и открытый без токена процесс опасен.
+
+Воркер — обычный процесс в foreground, поэтому запускается где угодно:
+
+```bash
+# systemd (user-сервис, без root)
+systemctl --user enable --now allan-serve
+
+# OpenRC (/etc/init.d/allan-serve, от root)
+rc-update add allan-serve default && rc-service allan-serve start
+
+# runit (Void Linux, K1OS)
+/etc/sv/allan-serve/run + /etc/sv/allan-serve/finish
+```
+
+Примеры файлов — в [`deploy/`](deploy/).
+
+### HTTP API воркера
+
+Все запросы, кроме `/health`, требуют `Authorization: Bearer <токен>`.
+`X-Allan-Client` — идентификатор пользователя: сессии именуются `<client>|<session>`,
+поэтому один клиент не видит и не отменяет чужой диалог даже при ошибке на сайте.
+
+| Метод и путь | Что делает |
+|---|---|
+| `GET /health` | проверка живости, без токена |
+| `GET /v1/state` | модель, рабочая папка, тулзы, провайдеры, сессии |
+| `POST /v1/chat` | `{"session","text"}` → SSE-поток событий агента |
+| `POST /v1/stop` | прервать текущий ход |
+| `GET /v1/history` | последние сообщения сессии (переживает перезапуск) |
+| `POST /v1/session/new\|clear\|delete` | управление сессиями |
+| `GET /v1/models?provider=` | каталог моделей провайдера |
+| `POST /v1/model` | `{"provider","model"}` — смена модели, как `/model` в TUI |
+| `GET /v1/skills` | навыки Skill Engine |
+
+События SSE: `start`, `tool_call`, `tool_result`, `final`, `warn`,
+`skill_saved`, `done` — в каждом `session`, у `tool_call` ещё `tool`, `tool_id`, `args`.
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" -H "X-Allan-Client: me" \
+  -d '{"session":"s1","text":"что в ~/git?"}' http://127.0.0.1:8790/v1/chat
+```
+
+---
+
+## Сессии: `--resume` и `/resume`
+
+```bash
+allan --resume                        # последняя завершённая сессия
+allan --resume 2fee4aad-f783-…        # конкретная сессия
+```
+
+История грузится в контекст модели **и** на экран, а сессия переоткрывается под
+тем же id — продолжение дописывается в ту же переписку. Внутри TUI то же самое
+делает `/resume` (`/resume` без аргументов показывает список последних сессий).
+
+Если ход прервался — например, локальная модель зависла и вы перешли на
+облачную, — Allan повторяет ваш же запрос на новой модели сам, а не просит
+перепечатать его. Вручную это `/retry`.
 
 ---
 

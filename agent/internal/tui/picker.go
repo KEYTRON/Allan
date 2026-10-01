@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/keytron/allan/agent/internal/i18n"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -178,9 +179,9 @@ func (m *Model) renderPicker() string {
 		}
 	}
 	if len(p.visible) == 0 {
-		lines = append(lines, StyleMuted.Render("  ничего не найдено"))
+		lines = append(lines, StyleMuted.Render(i18n.S("  ничего не найдено")))
 	}
-	lines = append(lines, "", StyleDim.Render(fmt.Sprintf("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска",
+	lines = append(lines, "", StyleDim.Render(fmt.Sprintf(i18n.S("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска"),
 		minInt(p.selected+1, len(p.visible)), len(p.visible))))
 	return StylePopup.Width(width).Render(strings.Join(lines, "\n"))
 }
