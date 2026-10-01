@@ -316,6 +316,30 @@ curl -N -H "Authorization: Bearer $TOKEN" -H "X-Allan-Client: me" \
   -d '{"session":"s1","text":"что в ~/git?"}' http://127.0.0.1:8790/v1/chat
 ```
 
+### Схема с сайтом
+
+```
+телефон  ──HTTPS──▶  allan.keytron-prime.org  (nginx → Django)
+                          проверка пользователя, SSE-прокси
+                                │ Tailscale
+                                ▼
+                        allan serve на ПК
+```
+
+- Страница привязки: `https://allan.keytron-prime.org/pair/` (вход по сессии сайта).
+- Обмен кода на токен: `POST /api/allan/pair/exchange/`.
+- Вход телефона: `POST /api/allan/auth/token/` (логин, пароль, опционально код 2FA) → токен.
+- Остальное проксируется как есть: `/api/allan/chat/` (SSE), `/state/`, `/stop/`,
+  `/history/`, `/session/`, `/models/`, `/model/`, `/skills/`.
+- Настройки на сервере: `ALLAN_WORKER_URL`, `ALLAN_ENABLED=0` — аварийный выключатель.
+- Доступ получают все зарегистрированные пользователи сайта; токены воркера хранятся
+  в Django, показываются замаскированными.
+
+**Грабля nginx:** если в `location` есть хотя бы один `proxy_set_header`, то все
+заголовки уровня `server` НЕ наследуются — включая `Host`. Без `Host $host` Django
+получает `127.0.0.1:8001` и отвечает `DisallowedHost` (400). Заголовки нужно
+дублировать в каждом `location`.
+
 ---
 
 ## Сессии: `--resume` и `/resume`
