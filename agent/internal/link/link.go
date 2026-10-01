@@ -30,12 +30,15 @@ const TokenName = "keytron-worker"
 
 // State is the non-secret half of the pairing, stored in ~/.allan/connection.json.
 type State struct {
-	Server   string    `json:"server"`
-	WorkerID string    `json:"worker_id"`
-	Name     string    `json:"name"`
-	Host     string    `json:"host"`
-	Allan    string    `json:"allan"`
-	PairedAt time.Time `json:"paired_at"`
+	Server   string `json:"server"`
+	WorkerID string `json:"worker_id"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Allan    string `json:"allan"`
+	// MachineID and Address are what the site was told at pairing time.
+	MachineID string    `json:"machine_id,omitempty"`
+	Address   string    `json:"address,omitempty"`
+	PairedAt  time.Time `json:"paired_at"`
 }
 
 // Meta is what the site shows next to the machine it was paired with.
@@ -43,6 +46,13 @@ type Meta struct {
 	Host     string
 	Platform string
 	Version  string
+	// MachineID is the stable id from MachineID(); the site uses it to tell the
+	// same PC connecting again from a second PC.
+	MachineID string
+	// Name is how the PC is shown in the app ("Mac", "gentoo-pc").
+	Name string
+	// Address is where the site reaches this PC's worker (Tailscale URL).
+	Address string
 }
 
 // ServerURL resolves which server to talk to: explicit flag, environment, the
@@ -122,10 +132,13 @@ func Exchange(ctx context.Context, base, code string, meta Meta) (*State, string
 		meta.Platform = runtime.GOOS + "/" + runtime.GOARCH
 	}
 	payload, err := json.Marshal(map[string]any{
-		"code":     strings.TrimSpace(code),
-		"host":     meta.Host,
-		"platform": meta.Platform,
-		"allan":    meta.Version,
+		"code":       strings.TrimSpace(code),
+		"host":       meta.Host,
+		"platform":   meta.Platform,
+		"allan":      meta.Version,
+		"machine_id": meta.MachineID,
+		"name":       meta.Name,
+		"address":    meta.Address,
 	})
 	if err != nil {
 		return nil, "", err
@@ -169,12 +182,14 @@ func Exchange(ctx context.Context, base, code string, meta Meta) (*State, string
 		server = strings.TrimRight(base, "/")
 	}
 	st := &State{
-		Server:   server,
-		WorkerID: out.WorkerID,
-		Name:     out.Name,
-		Host:     meta.Host,
-		Allan:    meta.Version,
-		PairedAt: time.Now(),
+		Server:    server,
+		WorkerID:  out.WorkerID,
+		Name:      out.Name,
+		Host:      meta.Host,
+		Allan:     meta.Version,
+		MachineID: meta.MachineID,
+		Address:   meta.Address,
+		PairedAt:  time.Now(),
 	}
 	return st, out.Token, nil
 }

@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/i18n"
 	"github.com/keytron/allan/agent/internal/link"
 )
@@ -20,7 +23,10 @@ const connectUsage = `allan connect — связать эту машину с KE
   allan connect reset        забыть сервер и удалить токен
 
 Флаги:
-  --server <url>   адрес KEYTRON Prime (по умолчанию %s, или ALLAN_SERVER_URL)
+  --server <url>    адрес KEYTRON Prime (по умолчанию %s, или ALLAN_SERVER_URL)
+  --name <имя>      как подписать этот ПК в приложении (по умолчанию имя хоста)
+  --address <url>   где сайт достучится до воркера (по умолчанию Tailscale-адрес
+                    этой машины и порт 8790)
 
 Как это работает: страница выдаёт одноразовый код после входа на сайт,
 эта команда обменивает код на общий токен и кладёт его в системный keyring.
@@ -28,13 +34,23 @@ const connectUsage = `allan connect — связать эту машину с KE
 `
 
 func runConnect(args []string) int {
-	var serverURL string
+	var serverURL, name, address string
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--server":
 			if i+1 < len(args) {
 				serverURL = args[i+1]
+				i++
+			}
+		case "--name":
+			if i+1 < len(args) {
+				name = args[i+1]
+				i++
+			}
+		case "--address":
+			if i+1 < len(args) {
+				address = args[i+1]
 				i++
 			}
 		case "-h", "--help", "help":
@@ -84,14 +100,14 @@ func runConnect(args []string) int {
 		}
 		return 0
 	case "pair", "start":
-		return connectPair(serverURL, code)
+		return connectPair(serverURL, code, name, address)
 	default:
 		// `allan connect <код>` without a subcommand
-		return connectPair(serverURL, sub)
+		return connectPair(serverURL, sub, name, address)
 	}
 }
 
-func connectPair(serverURL, code string) int {
+func connectPair(serverURL, code, name, address string) int {
 	base := link.ServerURL(serverURL)
 	if strings.TrimSpace(code) == "" {
 		fmt.Print(link.Instructions(base))
@@ -109,7 +125,19 @@ func connectPair(serverURL, code string) int {
 		return 1
 	}
 
-	st, token, err := link.Exchange(context.Background(), base, code, link.Meta{Version: version})
+	if strings.TrimSpace(name) == "" {
+		name = link.MachineName()
+	}
+	if strings.TrimSpace(address) == "" {
+		address = link.TailscaleAddress("")
+	}
+	meta := link.Meta{
+		Version:   version,
+		MachineID: link.MachineID(),
+		Name:      strings.TrimSpace(name),
+		Address:   strings.TrimSpace(address),
+	}
+	st, token, err := link.Exchange(context.Background(), base, code, meta)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "не получилось обменять код: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Проверьте, что код ещё действителен и вы вошли на %s\n", base)
@@ -127,6 +155,12 @@ func connectPair(serverURL, code string) int {
 	if st.WorkerID != "" {
 		fmt.Printf("  worker id %s\n", st.WorkerID)
 	}
+	fmt.Print(i18n.F("  id машины %s\n", meta.MachineID))
+	if meta.Address != "" {
+		fmt.Print(i18n.F("  адрес     %s (по нему сайт достучится до воркера)\n", meta.Address))
+	} else {
+		fmt.Println(i18n.S("  адрес     не найден (нет Tailscale): укажите --address http://<ip>:8790"))
+	}
 	fmt.Printf("  токен     %s (в системном keyring)\n", link.MaskToken(token))
 	fmt.Println()
 	fmt.Println("Теперь запустите воркер, чтобы телефон и сайт до него достучались:")
@@ -140,4 +174,37 @@ func readLine() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// runID prints what identifies this computer: the name shown in the app, the
+// stable id, the address the site would use and the pairing status.
+func runID() int {
+	id := link.MachineID()
+	fmt.Println(i18n.S("Эта машина"))
+	fmt.Print(i18n.F("  имя        %s\n", link.MachineName()))
+	fmt.Print(i18n.F("  id         %s\n", id))
+	fmt.Print(i18n.F("  система    %s\n", hostPlatform()))
+	if addr := link.TailscaleAddress(""); addr != "" {
+		fmt.Print(i18n.F("  адрес      %s (Tailscale)\n", addr))
+	} else {
+		fmt.Println(i18n.S("  адрес      Tailscale не найден"))
+	}
+	st, token, err := link.Load()
+	if err != nil || token == "" {
+		fmt.Println(i18n.S("  привязка   нет — allan connect"))
+	} else {
+		fmt.Print(i18n.F("  привязка   %s как «%s»\n", st.Server, st.Name))
+	}
+	fmt.Println()
+	fmt.Println(i18n.F("id хранится в %s и не меняется при обновлении и повторной привязке.", filepath.Join(configDirOrDot(), "machine_id")))
+	return 0
+}
+
+func hostPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+func configDirOrDot() string {
+	if dir, err := config.ConfigDir(); err == nil {
+		return dir
+	}
+	return ".allan"
 }

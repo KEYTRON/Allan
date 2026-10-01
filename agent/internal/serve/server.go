@@ -34,6 +34,7 @@ import (
 	"github.com/keytron/allan/agent/internal/agent"
 	"github.com/keytron/allan/agent/internal/backend"
 	"github.com/keytron/allan/agent/internal/bootstrap"
+	"github.com/keytron/allan/agent/internal/link"
 	"github.com/keytron/allan/agent/internal/memory"
 	"github.com/keytron/allan/agent/internal/tools"
 )
@@ -233,6 +234,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		"model":     sess.rt.Cfg.Backend.Model,
 		"workspace": sess.rt.Workspace,
 		"agent":     sess.rt.Agent.SessionID,
+		"machine":   link.MachineID(),
+		"name":      link.MachineName(),
 		"tools":     toolNames(sess.rt.Registry),
 		"providers": providers,
 		"memory":    sess.rt.Memory != nil,

@@ -12,6 +12,7 @@ import (
 	"github.com/keytron/allan/agent/internal/agent"
 	"github.com/keytron/allan/agent/internal/bootstrap"
 	"github.com/keytron/allan/agent/internal/i18n"
+	"github.com/keytron/allan/agent/internal/link"
 	"github.com/keytron/allan/agent/internal/tui"
 )
 
@@ -97,6 +98,8 @@ func main() {
 			os.Exit(runServe(args[1:]))
 		case "connect":
 			os.Exit(runConnect(args[1:]))
+		case "id":
+			os.Exit(runID())
 		case "help":
 			printUsage()
 			return
@@ -167,6 +170,9 @@ func printSummary(ag *agent.Agent, started time.Time) {
 
 func printUsage() {
 	fmt.Print(i18n.F(usageText, version, strings.Join(knownProviders(), ", ")))
+	// Which computer this is: with several PCs on one account the app labels
+	// them by name, and the id tells two machines with the same name apart.
+	fmt.Print(i18n.F("\nЭта машина: %s · id %s  (подробнее: allan id)\n", link.MachineName(), link.ShortID(link.MachineID())))
 }
 
 const usageText = `Allan %s — автономный агент в терминале
@@ -177,6 +183,7 @@ const usageText = `Allan %s — автономный агент в термин�
   allan key list | rm <provider>
   allan connect [код]           связать эту машину с KEYTRON Prime (страница выдаёт код)
   allan serve                   HTTP-воркер для телефона и сайта (обычно в фоне)
+  allan id                      имя, уникальный id и адрес этой машины
   allan help                    эта справка
 
 Флаги:
