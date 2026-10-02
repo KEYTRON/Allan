@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- launchd (macOS): cp deploy/allan-serve.plist ~/Library/LaunchAgents/
-     launchctl load ~/Library/LaunchAgents/allan-serve.plist
-     Токен берётся из Keychain (его кладёт `allan connect`). -->
+<!-- launchd (macOS). Скопируйте в ~/Library/LaunchAgents/prime.allan.serve.plist,
+     замените ПУТЬ и АДРЕС и запустите:
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/prime.allan.serve.plist
+     АДРЕС — Tailscale-адрес этого Mac (tailscale ip -4): по нему сервер KEYTRON Prime
+     достучится до воркера. 127.0.0.1 сайту недоступен.
+     Токен берётся из Keychain, а если Keychain заперт (SSH, демон без входа в
+     систему), из ~/.allan/secrets.json (0600): его кладёт `allan connect`.
+     Проверка: launchctl print gui/$(id -u)/prime.allan.serve ; лог ~/Library/Logs/allan-serve.log -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -9,18 +14,20 @@
     <string>prime.allan.serve</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/keytron/git/Allan/agent/bin/allan</string>
+        <string>ПУТЬ/allan</string>
         <string>serve</string>
         <string>--listen</string>
-        <string>127.0.0.1:8790</string>
+        <string>АДРЕС:8790</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
     <key>StandardOutPath</key>
-    <string>/tmp/allan-serve.log</string>
+    <string>/Users/ВАШ_ПОЛЬЗОВАТЕЛЬ/Library/Logs/allan-serve.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/allan-serve.log</string>
+    <string>/Users/ВАШ_ПОЛЬЗОВАТЕЛЬ/Library/Logs/allan-serve.log</string>
 </dict>
 </plist>
