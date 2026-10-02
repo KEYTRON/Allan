@@ -43,9 +43,67 @@ func Open(dir string) Store {
 		return file
 	}
 	if _, err := keyring.Get(service, indexUser); err == nil || errors.Is(err, keyring.ErrNotFound) {
-		return &keyringStore{}
+		// Reading works, but writing may not (a locked macOS keychain over SSH,
+		// a daemon without a login session): layer the file store underneath
+		// so a failed write is not a failed pairing.
+		return &layeredStore{keyring: keyringStore{}, file: file}
 	}
 	return file
+}
+
+// layeredStore prefers the system keyring and quietly falls back to the 0600
+// file when the keyring refuses to write or read. Secrets are looked up in both.
+type layeredStore struct {
+	keyring keyringStore
+	file    *fileStore
+}
+
+func (l *layeredStore) Kind() string {
+	return "system keyring, file fallback " + l.file.path + " (0600)"
+}
+
+func (l *layeredStore) Get(name string) (string, error) {
+	if s, err := l.keyring.Get(name); err == nil {
+		return s, nil
+	}
+	return l.file.Get(name)
+}
+
+func (l *layeredStore) Set(name, secret string) error {
+	if err := l.keyring.Set(name, secret); err != nil {
+		return l.file.Set(name, secret)
+	}
+	// Keyring took it: do not leave an older copy in the file.
+	_ = l.file.Delete(name)
+	return nil
+}
+
+func (l *layeredStore) Delete(name string) error {
+	kerr := l.keyring.Delete(name)
+	ferr := l.file.Delete(name)
+	if ferr != nil {
+		return ferr
+	}
+	if kerr != nil && !errors.Is(kerr, ErrNotFound) {
+		// Keyring unreachable: the file copy is gone, which is what matters.
+		return nil
+	}
+	return nil
+}
+
+func (l *layeredStore) Names() ([]string, error) {
+	set := map[string]bool{}
+	if names, err := l.keyring.Names(); err == nil {
+		for _, n := range names {
+			set[n] = true
+		}
+	}
+	if names, err := l.file.Names(); err == nil {
+		for _, n := range names {
+			set[n] = true
+		}
+	}
+	return sortedKeys(set), nil
 }
 
 type keyringStore struct{}
