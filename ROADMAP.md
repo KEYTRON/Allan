@@ -39,8 +39,18 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Skill Engine no longer saves skills for greetings and one-tool turns (cooldown, duplicate check, `skill_enabled`)
 - [ ] MCP support: connect MCP servers (stdio and HTTP) as agent tools
 - [ ] Test the agent on free models (OpenRouter free, Ollama Cloud Free): tool calls, long sessions
+- [x] Several PCs per account: stable `machine_id` (`allan id`, shown in `--help`), name and worker address at `allan connect`, a PC picker in the app; workers isolated between users
+- [x] Secrets fallback: when the keyring refuses (macOS over SSH) the token goes to `~/.allan/secrets.json` (0600)
+- [x] WARP packages: `allan` 0.4.0 for linux-x86_64, linux-aarch64, android-aarch64 (Termux) and macos-aarch64; `go` 1.27.1 for Termux
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases
 - [ ] CI: build and tests on every push
 - [x] Prebuilt binaries in GitHub releases
+
+## Next: every Allan on one account together (plan for 2026-10-03)
+- [ ] Reverse channel: the worker dials the site over `wss://` with its token and the site relays requests through that connection. Works behind NAT, needs no Tailscale or open ports, suits ordinary users
+- [ ] Mesh through the account: install and sign in Allan on one PC, then the same on a second one; from the second, use the first one's models and keys and work where you sit (like Tailscale in spirit, but on top of the KEYTRON Prime account)
+- [ ] A direct Tailscale address stays as an optional fast path for your own machines
+- [ ] Mac agent tools: OCR (Vision), speech-to-text from a file (Speech), `say`; the Mac GUI via RustDesk (AnyDesk as a backup)
+- [ ] `allan serve --tailscale` flag (listen on the Tailscale address without typing the IP)
