@@ -6,5 +6,5 @@
 #
 # Подходит любому DE/WM, который умеет автозапуск (KDE, GNOME, XFCE, …).
 # Процесс остаётся в фоне пользователя и не требует sudo.
-exec "$HOME/git/Allan/agent/bin/allan" serve --listen 100.118.140.15:8790 \
+exec "$HOME/git/Allan/agent/bin/allan" serve --foreground \
     >> "$HOME/.allan/serve.log" 2>&1

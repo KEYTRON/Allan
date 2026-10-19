@@ -53,7 +53,7 @@ type ProviderConfig struct {
 type TUIConfig struct {
 	Theme          string `toml:"theme"`
 	ShowTimestamps bool   `toml:"show_timestamps"`
-	// Lang is the interface language: ru (default), en or de.
+	// Lang is the interface language: ru, en or de; empty follows the environment.
 	Lang string `toml:"lang"`
 }
 
@@ -105,7 +105,7 @@ func Default() *Config {
 		TUI: TUIConfig{
 			Theme:          "dark",
 			ShowTimestamps: false,
-			Lang:           "ru",
+			Lang:           "", // пусто — язык из окружения (LANG), иначе английский
 		},
 		Memory: MemoryConfig{
 			Enabled:                  true,
@@ -233,6 +233,7 @@ func (c *Config) loadSecrets() error {
 		p.APIKey = key
 		c.Providers[name] = p
 	}
+	c.addKeytron()
 	if c.Backend.APIKey != "" {
 		if _, ok := c.Providers[c.Backend.Type]; !ok {
 			if err := c.Secrets.Set(c.Backend.Type, c.Backend.APIKey); err != nil {
@@ -249,6 +250,35 @@ func (c *Config) loadSecrets() error {
 		return Save(c)
 	}
 	return nil
+}
+
+// KeytronGateway is the KEYTRON Prime OpenAI-compatible gateway.
+const KeytronGateway = "https://keytron-prime.org/api/ai/v1"
+
+// pairingTokenName is where `allan connect` keeps the worker token (link.TokenName).
+const pairingTokenName = "keytron-worker"
+
+// addKeytron makes the site's gateway available as the "keytron" provider as
+// soon as the machine is paired: the site accepts the worker token as a
+// gateway key for the same account, so no separate kp-… key is needed. An
+// explicit `allan key set keytron` still wins.
+func (c *Config) addKeytron() {
+	p, ok := c.Providers["keytron"]
+	if ok && p.APIKey != "" {
+		return
+	}
+	token, err := c.Secrets.Get(pairingTokenName)
+	if err != nil || token == "" {
+		return
+	}
+	if p.Type == "" {
+		p.Type = "openai"
+	}
+	if p.BaseURL == "" {
+		p.BaseURL = KeytronGateway
+	}
+	p.APIKey = token
+	c.Providers["keytron"] = p
 }
 
 func Save(cfg *Config) error {

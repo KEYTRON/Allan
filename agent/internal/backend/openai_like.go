@@ -82,7 +82,8 @@ type oaiResponse struct {
 
 type oaiModelsResp struct {
 	Data []struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
 	} `json:"data"`
 }
 
@@ -267,6 +268,11 @@ func (o *OpenAILike) Models(ctx context.Context) ([]string, error) {
 	}
 	out := make([]string, 0, len(mr.Data))
 	for _, m := range mr.Data {
+		// catalogs like KEYTRON Prime also list image, speech and embedding models;
+		// the agent can only talk to chat ones (a missing kind means chat)
+		if m.Kind != "" && m.Kind != "chat" {
+			continue
+		}
 		out = append(out, m.ID)
 	}
 	return out, nil

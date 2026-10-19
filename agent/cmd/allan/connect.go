@@ -77,7 +77,7 @@ func runConnect(args []string) int {
 		st, token, err := link.Load()
 		if err != nil {
 			fmt.Println(link.Summary(nil, ""))
-			fmt.Println("Запустите: allan connect")
+			fmt.Println(i18n.S("Запустите: allan connect"))
 			return 1
 		}
 		fmt.Println(link.Summary(st, token))
@@ -85,18 +85,18 @@ func runConnect(args []string) int {
 			return 1
 		}
 		fmt.Println()
-		fmt.Println("Запустить воркер:  allan serve")
+		fmt.Println(i18n.S("Запустить воркер:  allan serve"))
 		return 0
 	case "reset", "forget":
 		st, _, _ := link.Load()
 		if err := link.Reset(); err != nil {
-			fmt.Fprintf(os.Stderr, "не удалось сбросить: %v\n", err)
+			fmt.Fprint(os.Stderr, i18n.F("не удалось сбросить: %v\n", err))
 			return 1
 		}
 		if st != nil {
-			fmt.Printf("Связь с %s удалена, токен воркера стёрт.\n", st.Server)
+			fmt.Print(i18n.F("Связь с %s удалена, токен воркера стёрт.\n", st.Server))
 		} else {
-			fmt.Println("Нечего сбрасывать.")
+			fmt.Println(i18n.S("Нечего сбрасывать."))
 		}
 		return 0
 	case "pair", "start":
@@ -115,13 +115,13 @@ func connectPair(serverURL, code, name, address string) int {
 		line, err := readLine()
 		fmt.Println()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ввод кода: %v\n", err)
+			fmt.Fprint(os.Stderr, i18n.F("ввод кода: %v\n", err))
 			return 1
 		}
 		code = strings.TrimSpace(line)
 	}
 	if code == "" {
-		fmt.Fprintln(os.Stderr, "пустой код, ничего не подключено")
+		fmt.Fprintln(os.Stderr, i18n.S("пустой код, ничего не подключено"))
 		return 1
 	}
 
@@ -139,8 +139,8 @@ func connectPair(serverURL, code, name, address string) int {
 	}
 	st, token, err := link.Exchange(context.Background(), base, code, meta)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "не получилось обменять код: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Проверьте, что код ещё действителен и вы вошли на %s\n", base)
+		fmt.Fprint(os.Stderr, i18n.F("не получилось обменять код: %v\n", err))
+		fmt.Fprint(os.Stderr, i18n.F("Проверьте, что код ещё действителен и вы вошли на %s\n", base))
 		return 1
 	}
 	if err := link.Save(st, token); err != nil {
@@ -148,9 +148,9 @@ func connectPair(serverURL, code, name, address string) int {
 		return 1
 	}
 	fmt.Println()
-	fmt.Printf("Машина связана с %s\n", st.Server)
+	fmt.Print(i18n.F("Машина связана с %s\n", st.Server))
 	if st.Name != "" {
-		fmt.Printf("  имя       %s\n", st.Name)
+		fmt.Print(i18n.F("  имя       %s\n", st.Name))
 	}
 	if st.WorkerID != "" {
 		fmt.Printf("  worker id %s\n", st.WorkerID)
@@ -161,9 +161,9 @@ func connectPair(serverURL, code, name, address string) int {
 	} else {
 		fmt.Println(i18n.S("  адрес     не найден (нет Tailscale): укажите --address http://<ip>:8790"))
 	}
-	fmt.Printf("  токен     %s (в системном keyring)\n", link.MaskToken(token))
+	fmt.Print(i18n.F("  токен     %s (в системном keyring)\n", link.MaskToken(token)))
 	fmt.Println()
-	fmt.Println("Теперь запустите воркер, чтобы телефон и сайт до него достучались:")
+	fmt.Println(i18n.S("Теперь запустите воркер, чтобы телефон и сайт до него достучались:"))
 	fmt.Println("  allan serve")
 	return 0
 }

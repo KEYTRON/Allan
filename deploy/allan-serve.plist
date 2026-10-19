@@ -16,6 +16,7 @@
     <array>
         <string>ПУТЬ/allan</string>
         <string>serve</string>
+        <string>--foreground</string>
         <string>--listen</string>
         <string>АДРЕС:8790</string>
     </array>

@@ -146,3 +146,15 @@ func TestEveryUserFacingStringIsTranslated(t *testing.T) {
 			strings.Join(missing, "\n"))
 	}
 }
+
+func TestDetectReadsLocaleNames(t *testing.T) {
+	for env, want := range map[string]Lang{"ru_RU.UTF-8": Ru, "de_DE@euro": De, "en_US.UTF-8": En, "C": En, "POSIX": En} {
+		t.Setenv("ALLAN_LANG", "")
+		t.Setenv("LC_ALL", "")
+		t.Setenv("LC_MESSAGES", "")
+		t.Setenv("LANG", env)
+		if got := Detect(); got != want {
+			t.Errorf("LANG=%s: got %s, want %s", env, got, want)
+		}
+	}
+}

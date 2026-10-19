@@ -13,7 +13,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/git/Allan/agent/bin/allan serve --listen 100.118.140.15:8790
+ExecStart=%h/git/Allan/agent/bin/allan serve --foreground
 Restart=on-failure
 RestartSec=5
 # Агент умеет выполнять команды от вашего имени: не даём ему systemd-окружение

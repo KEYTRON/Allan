@@ -78,7 +78,7 @@ allan key list
 allan key rm openrouter
 ```
 
-Провайдеры из коробки: `keytron` (KEYTRON Prime: модели сайта и ваши BYOK-ключи через один ключ `kp-…` из профиля на сайте, расход и баланс видны там же), `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
+Провайдеры из коробки: `keytron` (KEYTRON Prime: модели сайта и ваши BYOK-ключи; после `allan connect` появляется сам — сайт принимает токен воркера как ключ, иначе ключ `kp-…` из профиля; расход и баланс видны на сайте), `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
 
 ### Slash-команды
 
@@ -255,10 +255,19 @@ allan connect reset    # забыть сервер и стереть токен
 ### Запуск воркера
 
 ```bash
-allan serve                                  # localhost:8790 + туннель к сайту
+allan serve                                  # уходит в фон: localhost:8790 + туннель к сайту
+allan serve status                           # работает ли, последние строки лога
+allan serve logs                             # лог: ~/.allan/serve.log
+allan serve stop                             # остановить фоновый воркер
+allan serve --foreground                     # в этом терминале, Ctrl+C — стоп
 allan serve --listen 100.118.140.15:8790     # ещё и прямой адрес в Tailscale
 allan serve --no-tunnel                      # без сайта, только локальный адрес
 ```
+
+С 0.4.2 `allan serve`, запущенный из терминала, сам уходит в фон (pid в
+`~/.allan/serve.pid`) и возвращает терминал. Из systemd, OpenRC, launchd и runit
+терминала нет, поэтому там воркер остаётся на переднем плане, как они и ждут;
+примеры в `deploy/` на всякий случай передают `--foreground` явно.
 
 С 0.4.1 воркер сам подключается к сайту по WebSocket
 (`wss://allan.keytron-prime.org/ws/allan/worker/`, адрес берётся из
@@ -318,6 +327,8 @@ cp deploy/allan-serve.desktop ~/.config/autostart/
 | `GET /v1/models?provider=` | каталог моделей провайдера |
 | `POST /v1/model` | `{"provider","model"}` — смена модели, как `/model` в TUI |
 | `GET /v1/skills` | навыки Skill Engine |
+| `GET /v1/llm` | модели этой машины для сайта: локальные провайдеры (Ollama, llama.cpp, LM Studio) и свои OpenAI-совместимые адреса |
+| `* /v1/llm/<провайдер>/…` | прокси к OpenAI API этого провайдера с ключом с этой машины (публичные облака и сам сайт не проксируются) |
 
 События SSE: `start`, `tool_call`, `tool_result`, `final`, `warn`,
 `skill_saved`, `done` — в каждом `session`, у `tool_call` ещё `tool`, `tool_id`, `args`.

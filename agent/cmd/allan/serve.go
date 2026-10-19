@@ -21,7 +21,10 @@ import (
 
 const serveUsage = `allan serve — HTTP-воркер: отдаёт агента телефону и сайту
 
-  allan serve [флаги]
+  allan serve [флаги]      запустить в фоне (из терминала) и вернуть терминал
+  allan serve status       работает ли, последние строки лога
+  allan serve logs         лог воркера (~/.allan/serve.log)
+  allan serve stop         остановить фоновый воркер
 
 Флаги:
   --listen <addr>     адрес слушания (по умолчанию 127.0.0.1:8790)
@@ -31,6 +34,7 @@ const serveUsage = `allan serve — HTTP-воркер: отдаёт агента
   --public            слушать на всех интерфейсах (осторожно: только за TLS-прокси)
   --no-tunnel         не подключаться к сайту (только локальный адрес / Tailscale)
   --server <url>      адрес KEYTRON Prime для туннеля (по умолчанию из allan connect)
+  --foreground        не уходить в фон (так его запускают systemd, OpenRC, launchd)
 
 Токен хранится в системном keyring. Воркер сам держит исходящее WebSocket-
 соединение с сайтом (туннель), поэтому телефон и сайт достают его за любым
@@ -39,12 +43,23 @@ const serveUsage = `allan serve — HTTP-воркер: отдаёт агента
 Tailscale.
 
 Примеры:
-  allan serve                                   # только localhost
-  allan serve --listen 100.118.140.15:8790      # Tailscale, для сервера-шлюза
+  allan serve                                   # в фоне: localhost + туннель к сайту
+  allan serve --foreground                      # в этом терминале, Ctrl+C — стоп
+  allan serve --listen 100.118.140.15:8790      # ещё и прямой адрес в Tailscale
   ALLAN_WORKER_TOKEN=… allan serve --listen 0.0.0.0:8790   # за обратным прокси
 `
 
 func runServe(args []string) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "stop":
+			return serveStop()
+		case "status":
+			return serveStatus()
+		case "logs", "log":
+			return serveLogs()
+		}
+	}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, i18n.S(serveUsage)) }
@@ -55,14 +70,18 @@ func runServe(args []string) int {
 	flPublic := fs.Bool("public", false, "слушать на всех интерфейсах")
 	flNoTunnel := fs.Bool("no-tunnel", false, "не подключаться к сайту")
 	flServer := fs.String("server", "", "адрес KEYTRON Prime")
+	flForeground := fs.Bool("foreground", false, "не уходить в фон")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if !*flForeground && onTerminal() {
+		return serveBackground(args)
 	}
 
 	token, err := resolveWorkerToken(*flToken)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		fmt.Fprint(os.Stderr, "\nСначала свяжите машину с KEYTRON Prime: allan connect\n")
+		fmt.Fprint(os.Stderr, i18n.S("\nСначала свяжите машину с KEYTRON Prime: allan connect\n"))
 		return 1
 	}
 	addr := *flListen
@@ -93,26 +112,26 @@ func runServe(args []string) int {
 	// Fail fast on a busy port instead of dying later inside ListenAndServe.
 	probe, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "не удалось занять %s: %v\n", addr, err)
+		fmt.Fprint(os.Stderr, i18n.F("не удалось занять %s: %v\n", addr, err))
 		return 1
 	}
 	_ = probe.Close()
 
-	fmt.Printf("◆ allan serve %s слушает %s\n", version, addr)
-	fmt.Printf("  токен      %s (%s)\n", maskToken(token), tokenSource(*flToken))
-	fmt.Printf("  страница   %s/pair\n", link.ServerURL(*flServer))
+	fmt.Print(i18n.F("◆ allan serve %s слушает %s\n", version, addr))
+	fmt.Print(i18n.F("  токен      %s (%s)\n", maskToken(token), tokenSource(*flToken)))
+	fmt.Print(i18n.F("  страница   %s/pair\n", link.ServerURL(*flServer)))
 	if !*flNoTunnel {
 		startTunnel(ctx, link.ServerURL(*flServer), token, srv)
 	} else {
-		fmt.Printf("  туннель    выключен (--no-tunnel)\n")
+		fmt.Print(i18n.F("  туннель    выключен (--no-tunnel)\n"))
 	}
-	fmt.Printf("  остановить: Ctrl+C\n\n")
+	fmt.Print(i18n.F("  остановить: Ctrl+C\n\n"))
 
 	if err := srv.Run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		return 1
 	}
-	fmt.Println("воркер остановлен")
+	fmt.Println(i18n.S("воркер остановлен"))
 	return 0
 }
 
@@ -121,22 +140,22 @@ func runServe(args []string) int {
 func startTunnel(ctx context.Context, server, token string, srv *serve.Server) {
 	endpoint, err := tunnel.URL(server)
 	if err != nil {
-		fmt.Printf("  туннель    %v\n", err)
+		fmt.Print(i18n.F("  туннель    %v\n", err))
 		return
 	}
 	machineID := ""
 	if st, _, err := link.Load(); err == nil {
 		machineID = st.MachineID
 	}
-	fmt.Printf("  туннель    %s\n", endpoint)
+	fmt.Print(i18n.F("  туннель    %s\n", endpoint))
 	var mu sync.Mutex
 	last := ""
 	go tunnel.Run(ctx, tunnel.Options{
 		Server: server, Token: token, Version: version, MachineID: machineID, Handler: srv.Handler(),
 		Status: func(ok bool, err error) {
-			msg := "на связи с сайтом"
+			msg := i18n.S("на связи с сайтом")
 			if !ok {
-				msg = "нет связи с сайтом, переподключаюсь"
+				msg = i18n.S("нет связи с сайтом, переподключаюсь")
 				if err != nil {
 					msg += ": " + err.Error()
 				}
@@ -145,7 +164,7 @@ func startTunnel(ctx context.Context, server, token string, srv *serve.Server) {
 			defer mu.Unlock()
 			if msg != last { // не печатать одно и то же на каждой попытке
 				last = msg
-				fmt.Printf("%s  туннель: %s\n", time.Now().Format("15:04:05"), msg)
+				fmt.Print(i18n.F("%s  туннель: %s\n", time.Now().Format("15:04:05"), msg))
 			}
 		},
 	})

@@ -73,21 +73,22 @@ func Normalize(s string) Lang {
 }
 
 // Detect picks a language from the environment (LANG/LC_ALL), falling back to
-// Russian. It is only consulted when neither the config nor a flag says so.
+// English. It is only consulted when neither the config nor a flag says so.
 func Detect() Lang {
 	for _, key := range []string{"ALLAN_LANG", "LC_ALL", "LC_MESSAGES", "LANG"} {
 		if v := os.Getenv(key); v != "" {
 			if l := Normalize(v); l != "" {
 				return l
 			}
-			if i := strings.IndexAny(v, ".@"); i > 0 {
+			// ru_RU.UTF-8, de_DE@euro, en_US: the language is what comes before "_" or "."
+			if i := strings.IndexAny(v, "_.@"); i > 0 {
 				if l := Normalize(v[:i]); l != "" {
 					return l
 				}
 			}
 		}
 	}
-	return Ru
+	return En
 }
 
 // Label is the language name in that language, for the /lang picker.
