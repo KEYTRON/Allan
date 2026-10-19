@@ -24,20 +24,23 @@ var ProviderPresets = map[string]ProviderPreset{
 	"ollama-cloud": {Type: "openai", BaseURL: "https://ollama.com/v1", Help: "Ollama Cloud по API-ключу"},
 	"huggingface":  {Type: "openai", BaseURL: "https://router.huggingface.co/v1", Help: "Hugging Face Inference Providers; ключ — токен hf_… с правом «Make calls to Inference Providers»"},
 	"featherless":  {Type: "openai", BaseURL: "https://api.featherless.ai/v1", Help: "Featherless.ai, ~20 тыс. моделей с HF"},
+	"keytron":      {Type: "openai", BaseURL: "https://keytron-prime.org/api/ai/v1", Help: "KEYTRON Prime: модели сайта и ваши BYOK-ключи одним ключом kp-… (профиль → AI), расход виден на сайте"},
 	"ollama":       {Type: "ollama", BaseURL: "http://localhost:11434/v1", Help: "локальный Ollama", Local: true},
 	"llamacpp":     {Type: "llamacpp", BaseURL: "http://localhost:8080/v1", Help: "локальный llama.cpp server", Local: true},
 	"lmstudio":     {Type: "lmstudio", BaseURL: "http://localhost:1234/v1", Help: "локальный LM Studio", Local: true},
 }
 
 var providerAliases = map[string]string{
-	"grok":         "xai",
-	"hf":           "huggingface",
-	"ollamacloud":  "ollama-cloud",
-	"ollama_cloud": "ollama-cloud",
-	"zen":          "opencode",
-	"glm":          "zai",
-	"giga":         "gigachat",
-	"sber":         "gigachat",
+	"grok":          "xai",
+	"hf":            "huggingface",
+	"ollamacloud":   "ollama-cloud",
+	"ollama_cloud":  "ollama-cloud",
+	"zen":           "opencode",
+	"glm":           "zai",
+	"giga":          "gigachat",
+	"sber":          "gigachat",
+	"keytron-prime": "keytron",
+	"kp":            "keytron",
 }
 
 func NormalizeProvider(name string) string {

@@ -8,12 +8,15 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/keytron/allan/agent/internal/bootstrap"
 	"github.com/keytron/allan/agent/internal/i18n"
 	"github.com/keytron/allan/agent/internal/link"
 	"github.com/keytron/allan/agent/internal/serve"
+	"github.com/keytron/allan/agent/internal/tunnel"
 )
 
 const serveUsage = `allan serve — HTTP-воркер: отдаёт агента телефону и сайту
@@ -26,10 +29,14 @@ const serveUsage = `allan serve — HTTP-воркер: отдаёт агента
   --workspace <папка> рабочая папка агента
   --max-sessions <n>  сколько сессий держать в памяти (по умолчанию 32)
   --public            слушать на всех интерфейсах (осторожно: только за TLS-прокси)
+  --no-tunnel         не подключаться к сайту (только локальный адрес / Tailscale)
+  --server <url>      адрес KEYTRON Prime для туннеля (по умолчанию из allan connect)
 
-Токен хранится в системном keyring. Воркер сам никуда не ходит: он только
-отвечает на запросы, поэтому держать его на локальном адресе или на Tailscale
-безопасно, а вот в интернет — только за nginx с токеном на телефоне.
+Токен хранится в системном keyring. Воркер сам держит исходящее WebSocket-
+соединение с сайтом (туннель), поэтому телефон и сайт достают его за любым
+роутером, без белого адреса и без Tailscale. Входящих портов наружу он не
+открывает: локальный адрес нужен только для доступа с этой машины или по
+Tailscale.
 
 Примеры:
   allan serve                                   # только localhost
@@ -46,6 +53,8 @@ func runServe(args []string) int {
 	flWorkspace := fs.String("workspace", "", "рабочая папка")
 	flMax := fs.Int("max-sessions", 32, "сколько сессий держать")
 	flPublic := fs.Bool("public", false, "слушать на всех интерфейсах")
+	flNoTunnel := fs.Bool("no-tunnel", false, "не подключаться к сайту")
+	flServer := fs.String("server", "", "адрес KEYTRON Prime")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -91,7 +100,12 @@ func runServe(args []string) int {
 
 	fmt.Printf("◆ allan serve %s слушает %s\n", version, addr)
 	fmt.Printf("  токен      %s (%s)\n", maskToken(token), tokenSource(*flToken))
-	fmt.Printf("  страница   %s/pair\n", link.ServerURL(""))
+	fmt.Printf("  страница   %s/pair\n", link.ServerURL(*flServer))
+	if !*flNoTunnel {
+		startTunnel(ctx, link.ServerURL(*flServer), token, srv)
+	} else {
+		fmt.Printf("  туннель    выключен (--no-tunnel)\n")
+	}
 	fmt.Printf("  остановить: Ctrl+C\n\n")
 
 	if err := srv.Run(ctx); err != nil {
@@ -100,6 +114,41 @@ func runServe(args []string) int {
 	}
 	fmt.Println("воркер остановлен")
 	return 0
+}
+
+// startTunnel keeps the outbound link to the site so the phone and the site
+// reach this worker without Tailscale; it reconnects on its own.
+func startTunnel(ctx context.Context, server, token string, srv *serve.Server) {
+	endpoint, err := tunnel.URL(server)
+	if err != nil {
+		fmt.Printf("  туннель    %v\n", err)
+		return
+	}
+	machineID := ""
+	if st, _, err := link.Load(); err == nil {
+		machineID = st.MachineID
+	}
+	fmt.Printf("  туннель    %s\n", endpoint)
+	var mu sync.Mutex
+	last := ""
+	go tunnel.Run(ctx, tunnel.Options{
+		Server: server, Token: token, Version: version, MachineID: machineID, Handler: srv.Handler(),
+		Status: func(ok bool, err error) {
+			msg := "на связи с сайтом"
+			if !ok {
+				msg = "нет связи с сайтом, переподключаюсь"
+				if err != nil {
+					msg += ": " + err.Error()
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if msg != last { // не печатать одно и то же на каждой попытке
+				last = msg
+				fmt.Printf("%s  туннель: %s\n", time.Now().Format("15:04:05"), msg)
+			}
+		},
+	})
 }
 
 // resolveWorkerToken takes the token from the flag, the pairing done by

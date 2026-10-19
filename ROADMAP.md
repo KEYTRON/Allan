@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.0
+Stage: 0.4.1
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -42,6 +42,8 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Several PCs per account: stable `machine_id` (`allan id`, shown in `--help`), name and worker address at `allan connect`, a PC picker in the app; workers isolated between users
 - [x] Secrets fallback: when the keyring refuses (macOS over SSH) the token goes to `~/.allan/secrets.json` (0600)
 - [x] WARP packages: `allan` 0.4.0 for linux-x86_64, linux-aarch64, android-aarch64 (Termux) and macos-aarch64; `go` 1.27.1 for Termux
+- [x] Reverse tunnel (0.4.1): `allan serve` keeps an outbound WebSocket to the site, so the phone and the site reach a PC behind NAT without Tailscale
+- [x] `keytron` provider (0.4.1): the site's own models and the user's BYOK keys through one `kp-…` key, spending shown on the site
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases

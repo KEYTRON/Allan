@@ -78,7 +78,7 @@ allan key list
 allan key rm openrouter
 ```
 
-Провайдеры из коробки: `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
+Провайдеры из коробки: `keytron` (KEYTRON Prime: модели сайта и ваши BYOK-ключи через один ключ `kp-…` из профиля на сайте, расход и баланс видны там же), `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
 
 ### Slash-команды
 
@@ -231,8 +231,9 @@ allan --lang de help       # справка на нужном языке
 ## Allan как воркер: `allan serve` и `allan connect`
 
 Агент умеет работать без терминала: HTTP-воркер отдаёт его телефону и сайту.
-Сами тулзы, ключи и память остаются на этой машине — воркер только отвечает
-на запросы и никуда сам не ходит.
+Сами тулзы, ключи и память остаются на этой машине. Наружу воркер держит
+только одно исходящее соединение — туннель к сайту, входящих портов в
+интернет он не открывает.
 
 ### Привязка к KEYTRON Prime
 
@@ -254,9 +255,19 @@ allan connect reset    # забыть сервер и стереть токен
 ### Запуск воркера
 
 ```bash
-allan serve                                  # только localhost:8790
-allan serve --listen 100.118.140.15:8790     # Tailscale, для сервера-шлюза
+allan serve                                  # localhost:8790 + туннель к сайту
+allan serve --listen 100.118.140.15:8790     # ещё и прямой адрес в Tailscale
+allan serve --no-tunnel                      # без сайта, только локальный адрес
 ```
+
+С 0.4.1 воркер сам подключается к сайту по WebSocket
+(`wss://allan.keytron-prime.org/ws/allan/worker/`, адрес берётся из
+`allan connect`, переопределяется `--server`) и держит это соединение,
+переподключаясь при обрывах. Сайт передаёт по нему запросы к воркеру, поэтому
+телефон и сайт достают ПК за любым роутером — без белого адреса, проброса
+портов и Tailscale. Запросы внутри туннеля проходят ту же проверку токена,
+что и прямые HTTP-запросы. Если есть и туннель, и адрес в Tailscale, сайт
+идёт через туннель.
 
 Токен берётся из keyring (то есть из `allan connect`), из `--token` или из
 `ALLAN_WORKER_TOKEN`. Пустой токен — воркер не стартует: агент умеет выполнять
@@ -321,8 +332,8 @@ curl -N -H "Authorization: Bearer $TOKEN" -H "X-Allan-Client: me" \
 ```
 телефон  ──HTTPS──▶  allan.keytron-prime.org  (nginx → Django)
                           проверка пользователя, SSE-прокси
-                                │ Tailscale
-                                ▼
+                                ▲ WebSocket-туннель (исходящий от ПК)
+                                │   или Tailscale на адрес воркера
                         allan serve на ПК
 ```
 
