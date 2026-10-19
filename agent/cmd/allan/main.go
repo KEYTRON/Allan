@@ -30,7 +30,7 @@ func scanLangFlag(args []string) string {
 	return ""
 }
 
-var version = "0.4.3"
+var version = "0.4.4"
 
 // resumeFlag accepts both "allan --resume" and "allan --resume <id>" (also
 // "allan --resume=<id>"). Go's flag package cannot do that with a plain Bool:
@@ -96,6 +96,8 @@ func main() {
 			os.Exit(runKey(args[1:]))
 		case "serve":
 			os.Exit(runServe(args[1:]))
+		case "audio":
+			os.Exit(runAudio(args[1:]))
 		case "connect":
 			os.Exit(runConnect(args[1:]))
 		case "id":
@@ -183,6 +185,7 @@ const usageText = `Allan %s — автономный агент в термин�
   allan key list | rm <provider>
   allan connect [код]           связать эту машину с KEYTRON Prime (страница выдаёт код)
   allan serve                   HTTP-воркер для телефона и сайта (обычно в фоне)
+  allan audio [setup]           голос этой машины для сайта: что умеет, поставить движки
   allan id                      имя, уникальный id и адрес этой машины
   allan help                    эта справка
 

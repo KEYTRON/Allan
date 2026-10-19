@@ -320,6 +320,14 @@ cp deploy/allan-serve.desktop ~/.config/autostart/
   режется ffmpeg на куски по 55 с, язык фиксируется префиллом ответа;
 - `mlx_audio.tts.generate` и скачанные модели `mlx-community/*TTS*` (Qwen3-TTS CustomVoice —
   с голосами Ryan, Vivian и др.).
+- на macOS — встроенный `say` (голоса из системы, в том числе русская Milena) и диктовка
+  Apple на самом устройстве через помощник `~/.allan/helpers/AllanSpeech.app`;
+- `whisper-ctranslate2` (faster-whisper) и `piper` с голосами в `~/.allan/voices/piper`.
+
+Поставить недостающее без root: `allan audio setup` (диктовка macOS — нужен `swiftc`
+из Xcode Command Line Tools и один раз нажать «Разрешить» в системном окне; faster-whisper
+и Piper ставятся через `uv` или `pipx`, голоса Piper — с rhasspy/piper-voices).
+`allan audio` показывает, что машина умеет сейчас.
 
 Свои движки — командами в `config.toml` (`{input}`, `{outdir}`, `{lang}`, `{lang_name}`,
 `{text}`, `{voice}`; пустые `{lang}`/`{voice}` выкидываются вместе с флагом перед ними):

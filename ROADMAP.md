@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.3
+Stage: 0.4.4
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -46,6 +46,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] `keytron` provider (0.4.1): the site's own models and the user's BYOK keys through one `kp-…` key, spending shown on the site
 - [x] 0.4.2: `allan serve` goes to the background from a terminal (`status`, `logs`, `stop`, `--foreground`); the site lists the PC's own models (`/v1/llm` proxy) in its chat; `keytron` appears by itself after `allan connect`; the language follows the environment, English when it says nothing
 - [x] 0.4.3: speech on the PC for the site: `/v1/audio` finds whisper, Ollama ASR models and MLX TTS by itself (plus `[[audio]]` commands), transcribes and speaks in the OpenRouter JSON shape
+- [x] 0.4.4: `allan audio [setup]`: macOS `say` and on-device Apple dictation (helper app), faster-whisper and Piper installed without root
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases
