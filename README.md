@@ -310,6 +310,30 @@ cp deploy/allan-serve.desktop ~/.config/autostart/
 Все файлы — в [`deploy/`](deploy/). Токен всегда из системного keyring, поэтому
 процесс нельзя запустить «просто так»: без `allan connect` воркер не стартует.
 
+### Голос для сайта
+
+`allan serve` сам находит, чем эта машина умеет распознавать и синтезировать речь,
+и сайт показывает это в настройках голоса чата:
+
+- `whisper` в `PATH` → `whisper-small` и модели, уже скачанные в `~/.cache/whisper`;
+- модели с `asr` в имени в локальном Ollama (например `frozenlab/qwen3-asr:1.7b`): аудио
+  режется ffmpeg на куски по 55 с, язык фиксируется префиллом ответа;
+- `mlx_audio.tts.generate` и скачанные модели `mlx-community/*TTS*` (Qwen3-TTS CustomVoice —
+  с голосами Ryan, Vivian и др.).
+
+Свои движки — командами в `config.toml` (`{input}`, `{outdir}`, `{lang}`, `{lang_name}`,
+`{text}`, `{voice}`; пустые `{lang}`/`{voice}` выкидываются вместе с флагом перед ними):
+
+```toml
+[[audio]]
+  name = "faster-whisper"
+  kind = "stt"
+  command = ["whisper-ctranslate2", "{input}", "--model", "small", "--language", "{lang}", "--output_dir", "{outdir}", "--output_format", "txt"]
+```
+
+Одновременно идёт одна задача речи: ноутбук с двумя загруженными моделями уходит в своп.
+Для mp3 и нарезки нужен `ffmpeg`.
+
 ### HTTP API воркера
 
 Все запросы, кроме `/health`, требуют `Authorization: Bearer <токен>`.
@@ -329,6 +353,9 @@ cp deploy/allan-serve.desktop ~/.config/autostart/
 | `GET /v1/skills` | навыки Skill Engine |
 | `GET /v1/llm` | модели этой машины для сайта: локальные провайдеры (Ollama, llama.cpp, LM Studio) и свои OpenAI-совместимые адреса |
 | `* /v1/llm/<провайдер>/…` | прокси к OpenAI API этого провайдера с ключом с этой машины (публичные облака и сам сайт не проксируются) |
+| `GET /v1/audio` | движки речи этой машины: распознавание (`stt`) и синтез (`tts`) с голосами |
+| `POST /v1/audio/transcriptions` | `{"model","language","input_audio":{"data","format"}}` → `{"text"}` (формат JSON-API OpenRouter) |
+| `POST /v1/audio/speech` | `{"model","input","voice","language","response_format"}` → байты аудио |
 
 События SSE: `start`, `tool_call`, `tool_result`, `final`, `warn`,
 `skill_saved`, `done` — в каждом `session`, у `tool_call` ещё `tool`, `tool_id`, `args`.

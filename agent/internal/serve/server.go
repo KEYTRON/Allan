@@ -105,6 +105,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/skills", s.auth(s.handleSkills))
 	mux.HandleFunc("/v1/llm", s.auth(s.handleLLM))
 	mux.HandleFunc("/v1/llm/", s.auth(s.handleLLM))
+	mux.HandleFunc("/v1/audio", s.auth(s.handleAudio))
+	mux.HandleFunc("/v1/audio/", s.auth(s.handleAudio))
 	return withCORS(mux)
 }
 

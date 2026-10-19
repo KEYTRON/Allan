@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.2
+Stage: 0.4.3
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -45,6 +45,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Reverse tunnel (0.4.1): `allan serve` keeps an outbound WebSocket to the site, so the phone and the site reach a PC behind NAT without Tailscale
 - [x] `keytron` provider (0.4.1): the site's own models and the user's BYOK keys through one `kp-…` key, spending shown on the site
 - [x] 0.4.2: `allan serve` goes to the background from a terminal (`status`, `logs`, `stop`, `--foreground`); the site lists the PC's own models (`/v1/llm` proxy) in its chat; `keytron` appears by itself after `allan connect`; the language follows the environment, English when it says nothing
+- [x] 0.4.3: speech on the PC for the site: `/v1/audio` finds whisper, Ollama ASR models and MLX TTS by itself (plus `[[audio]]` commands), transcribes and speaks in the OpenRouter JSON shape
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases

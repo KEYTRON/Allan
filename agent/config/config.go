@@ -22,6 +22,21 @@ type Config struct {
 	TUI       TUIConfig                 `toml:"tui"`
 	Memory    MemoryConfig              `toml:"memory"`
 	Tools     ToolsConfig               `toml:"tools"`
+	// Audio lists speech engines on this machine beyond the ones allan serve
+	// finds by itself (whisper, Ollama ASR models, MLX TTS).
+	Audio []AudioEngine `toml:"audio,omitempty"`
+}
+
+// AudioEngine is a speech-to-text or text-to-speech command on this machine.
+// Command placeholders: {input} audio file, {outdir} folder for results,
+// {lang} ISO code (ru), {lang_name} English name (russian), {text}, {voice}.
+// An argument that is only {lang} or {voice} is dropped together with the
+// flag before it when the value is empty.
+type AudioEngine struct {
+	Name    string   `toml:"name"`
+	Kind    string   `toml:"kind"` // stt | tts
+	Command []string `toml:"command"`
+	Voices  []string `toml:"voices,omitempty"`
 }
 
 type AgentConfig struct {
