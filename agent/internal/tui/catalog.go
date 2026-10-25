@@ -223,6 +223,12 @@ func modelDetail(c modelChoice) (detail string, aux, free bool) {
 			parts = append(parts, cap)
 		}
 	}
+	switch info.Pick {
+	case "recent":
+		parts = append([]string{i18n.S("недавняя")}, parts...)
+	case "popular":
+		parts = append([]string{i18n.S("популярная")}, parts...)
+	}
 	if info.Context >= 1000 {
 		parts = append(parts, fmt.Sprintf("%dk", info.Context/1000))
 	}

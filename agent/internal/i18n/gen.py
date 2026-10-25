@@ -489,6 +489,11 @@ add("  остаток сообщают DeepSeek, OpenRouter и ElevenLabs; у о
 add("%s · %d запр. · %s ток.", "%s · %d req. · %s tok.", "%s · %d Anfr. · %s Tok.")
 add(" · списано $%.4f", " · charged $%.4f", " · abgebucht $%.4f")
 
+# --- folded catalog (picker.go) ---
+add("  … ещё %s — Tab на раздел или поиск", "  … %s more — Tab to a section or search", "  … noch %s — Tab zum Bereich oder suchen")
+add("недавняя", "recent", "zuletzt")
+add("популярная", "popular", "beliebt")
+
 
 def go_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'

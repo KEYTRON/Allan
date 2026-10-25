@@ -18,7 +18,10 @@ type pickItem struct {
 	Dim     bool   // shown greyed out (e.g. embedding models)
 	Free    bool   // passes the "free only" filter
 	Section int    // index into picker.sections
-	Value   any
+	// Folded items are hidden from the "all" view until the user searches or
+	// opens their section: catalogs of hundreds of models drown the rest.
+	Folded bool
+	Value  any
 }
 
 // picker is a modal list: arrows move, typing filters, Enter picks, Esc closes.
@@ -35,6 +38,7 @@ type picker struct {
 	section  int      // -1 — all sections
 	freeOnly bool
 	query    string
+	hidden   []int // per section: folded items left out of the current view
 }
 
 const pickerRows = 12
@@ -59,8 +63,16 @@ func (p *picker) filter(q string) {
 		keep = p.visible[p.selected]
 	}
 	p.visible = p.visible[:0]
+	fold := p.section == -1 && len(words) == 0
+	p.hidden = make([]int, len(p.sections))
 	for i, it := range p.items {
 		if p.section >= 0 && it.Section != p.section || p.freeOnly && !it.Free {
+			continue
+		}
+		if fold && it.Folded && !it.Current {
+			if it.Section < len(p.hidden) {
+				p.hidden[it.Section]++
+			}
 			continue
 		}
 		hay := strings.ToLower(it.Label + " " + it.Group + " " + it.Detail)
@@ -78,6 +90,17 @@ func (p *picker) filter(q string) {
 	p.selected = 0
 	for i, idx := range p.visible {
 		if idx == keep {
+			p.selected = i
+		}
+	}
+}
+
+// setSections turns on tabs and folding; the cursor stays on the current item.
+func (p *picker) setSections(names []string) {
+	p.sections = names
+	p.filter(p.query)
+	for i, idx := range p.visible {
+		if p.items[idx].Current {
 			p.selected = i
 		}
 	}
@@ -240,6 +263,9 @@ func (m *Model) renderPicker() string {
 	if len(p.visible) == 0 {
 		lines = append(lines, StyleMuted.Render(i18n.S("  ничего не найдено")))
 	}
+	if folded := p.foldedNote(); folded != "" {
+		lines = append(lines, StyleDim.Render(truncate(folded, inner)))
+	}
 	hint := i18n.S("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска")
 	if p.sections != nil {
 		hint = i18n.S("%d/%d · ↑↓/колесо выбор · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска")
@@ -277,4 +303,18 @@ func (p *picker) renderTabs(width int) string {
 		row = truncate(row, width)
 	}
 	return row
+}
+
+// foldedNote says how much the "all" view leaves out and how to see it.
+func (p *picker) foldedNote() string {
+	parts := []string{}
+	for i, n := range p.hidden {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", p.sections[i], n))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(i18n.S("  … ещё %s — Tab на раздел или поиск"), strings.Join(parts, ", "))
 }

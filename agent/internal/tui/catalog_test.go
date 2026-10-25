@@ -109,3 +109,31 @@ func TestWheelMovesPicker(t *testing.T) {
 		t.Fatalf("wheel up: selected %d", m.picker.selected)
 	}
 }
+
+func TestPickerFoldsLongSections(t *testing.T) {
+	items := []pickItem{
+		{Label: "local", Section: secLocal},
+		{Label: "picked", Section: secDirect},
+		{Label: "hidden-a", Section: secDirect, Folded: true},
+		{Label: "hidden-b", Section: secBYOK, Folded: true},
+		{Label: "current", Section: secDirect, Folded: true, Current: true},
+	}
+	p := newPicker("t", items, nil)
+	p.setSections(sectionTitles[:])
+	if len(p.visible) != 3 || p.hidden[secDirect] != 1 || p.hidden[secBYOK] != 1 {
+		t.Fatalf("all view: visible %d hidden %v", len(p.visible), p.hidden)
+	}
+	if p.foldedNote() == "" {
+		t.Fatal("no note about folded models")
+	}
+	p.filter("hidden") // searching looks through everything
+	if len(p.visible) != 2 {
+		t.Fatalf("search: %d", len(p.visible))
+	}
+	p.filter("")
+	p.section = secDirect // opening the section shows it whole
+	p.filter("")
+	if len(p.visible) != 3 || p.foldedNote() != "" {
+		t.Fatalf("section: %d, note %q", len(p.visible), p.foldedNote())
+	}
+}

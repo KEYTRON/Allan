@@ -73,6 +73,7 @@ type ModelInfo struct {
 	Caps    []string   `json:"caps"`
 	Context int        `json:"context"`
 	Worker  string     `json:"worker"` // KEYTRON: the user's computer that serves the model
+	Pick    string     `json:"pick"`   // KEYTRON: "recent" or "popular" — the short list for the menu
 }
 
 // ModelCost is dollars per million tokens.

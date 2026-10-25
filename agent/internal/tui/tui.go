@@ -1448,6 +1448,14 @@ func (m *Model) openModelPicker(provider string) {
 		return
 	}
 	items := make([]pickItem, 0, len(m.modelCatalog)+1)
+	// the site's short list (recent, popular) also lifts the same model
+	// offered by a provider called directly
+	picks := map[string]bool{}
+	for _, c := range m.modelCatalog {
+		if c.Info.Pick != "" {
+			picks[c.Model] = true
+		}
+	}
 	for _, c := range m.modelCatalog {
 		if provider != "" && c.Provider != provider {
 			continue
@@ -1461,6 +1469,7 @@ func (m *Model) openModelPicker(provider string) {
 			Dim:     aux,
 			Free:    free,
 			Section: c.Section,
+			Folded:  (c.Section == secBYOK || c.Section == secDirect) && c.Info.Pick == "" && !picks[c.Provider+"/"+c.Model],
 			Value:   c,
 		})
 	}
@@ -1493,9 +1502,11 @@ func (m *Model) openModelPicker(provider string) {
 		m.switchBackendModel(c.Provider, c.Model)
 		return nil
 	})
+	names := make([]string, 0, len(sectionTitles))
 	for _, t := range sectionTitles {
-		p.sections = append(p.sections, i18n.S(t))
+		names = append(names, i18n.S(t))
 	}
+	p.setSections(names)
 	m.openPicker(p)
 }
 
