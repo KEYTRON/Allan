@@ -449,7 +449,7 @@ add('allan connect — связать эту машину с KEYTRON Prime\n\n  
 # --- model picker sections (catalog.go) ---
 add("Этот ПК", "This PC", "Dieser PC")
 add("Мои ПК", "My PCs", "Meine PCs")
-add("Ключи через KEYTRON", "Keys via KEYTRON", "Schlüssel über KEYTRON")
+add("BYOK", "BYOK", "BYOK")
 add("Напрямую", "Direct", "Direkt")
 add("наши модели", "our models", "unsere Modelle")
 add(" · через KEYTRON", " · via KEYTRON", " · über KEYTRON")
@@ -493,6 +493,8 @@ add(" · списано $%.4f", " · charged $%.4f", " · abgebucht $%.4f")
 add("  … ещё %s — Tab на раздел или поиск", "  … %s more — Tab to a section or search", "  … noch %s — Tab zum Bereich oder suchen")
 add("недавняя", "recent", "zuletzt")
 add("популярная", "popular", "beliebt")
+
+add("токены %s · /help ", "tokens %s · /help ", "Tokens %s · /help ")
 
 
 def go_string(s):

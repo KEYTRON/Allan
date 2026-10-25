@@ -59,6 +59,7 @@ type siteUsage struct {
 			Unlimited    bool    `json:"unlimited"`
 		} `json:"site"`
 		Providers []struct {
+			Slug      string  `json:"slug"`
 			Name      string  `json:"name"`
 			Amount    float64 `json:"amount"`
 			Currency  string  `json:"currency"`
@@ -208,7 +209,7 @@ func (m *Model) renderUsage(msg usageMsg) string {
 			if p.Available != nil && !*p.Available {
 				line += " · " + i18n.S("нет средств")
 			}
-			w("  %-30s %s\n", p.Name+i18n.S(" (ключ на сайте)"), line)
+			w("  %-30s %s\n", "BYOK "+p.Name, line)
 		}
 	}
 	for _, d := range msg.balances {

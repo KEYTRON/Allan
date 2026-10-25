@@ -27,7 +27,7 @@ const (
 	secCount
 )
 
-var sectionTitles = [secCount]string{"Этот ПК", "Мои ПК", "KEYTRON", "Ключи через KEYTRON", "Напрямую"}
+var sectionTitles = [secCount]string{"Этот ПК", "Мои ПК", "KEYTRON", "BYOK", "Напрямую"}
 
 // keytronLogin is the Value of the placeholder row shown when KEYTRON is not
 // reachable from this machine.
@@ -141,7 +141,7 @@ func (m *Model) placeModel(provider string, info backend.ModelInfo) (int, string
 		case "allan":
 			return secMine, info.Worker + i18n.S(" · через KEYTRON")
 		default:
-			return secBYOK, info.OwnedBy
+			return secBYOK, "BYOK " + providerTitle(info.OwnedBy)
 		}
 	case m.personalProvider(provider):
 		return secMine, provider
@@ -257,4 +257,13 @@ func modelLabel(c modelChoice) string {
 		return strings.TrimPrefix(c.Model, c.Info.OwnedBy+"/")
 	}
 	return c.Model
+}
+
+// groupHeader is the line above a group of models: the section and the
+// provider or computer, without saying BYOK twice.
+func groupHeader(c modelChoice) string {
+	if c.Section == secBYOK {
+		return c.Group
+	}
+	return i18n.S(sectionTitles[c.Section]) + " · " + c.Group
 }

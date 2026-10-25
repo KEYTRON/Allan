@@ -67,6 +67,8 @@ type Model struct {
 	turnIn         int
 	turnOut        int
 	turnProvider   string
+	statusBalance  string    // money behind the current model, under the input
+	balanceAt      time.Time // last time it was asked for
 
 	focus     FocusMode
 	ptyActive bool
@@ -140,7 +142,7 @@ func (m *Model) welcome() {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, m.refreshBalance(true))
 }
 
 type agentEventMsg struct{ ev agent.Event }
@@ -179,6 +181,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case agentEventMsg:
 		m.handleAgentEvent(msg.ev)
+	case statusBalanceMsg:
+		m.statusBalance = msg.text
 	case usageMsg:
 		m.appendMsg(Message{Kind: MsgSys, Text: m.renderUsage(msg)})
 	case compactDoneMsg:
@@ -193,6 +197,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentDoneMsg:
 		m.thinking = false
 		m.endTurnUsage()
+		cmds = append(cmds, m.refreshBalance(false))
 		if m.cancelRun != nil {
 			m.cancelRun()
 			m.cancelRun = nil
@@ -636,6 +641,9 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		m.handleAPI(args)
 	case "/model":
 		m.handleModel(args)
+		if len(args) > 0 {
+			return m.refreshBalance(true)
+		}
 	case "/backend":
 		if len(args) == 0 {
 			m.openProviderPicker()
@@ -1041,7 +1049,7 @@ func (m *Model) renderModelCatalog() string {
 	sb.WriteString(fmt.Sprintf("Текущая модель: %s/%s\n\n", m.Cfg.Backend.Type, m.Cfg.Backend.Model))
 	currentGroup := ""
 	for i, choice := range m.modelCatalog {
-		if group := i18n.S(sectionTitles[choice.Section]) + " · " + choice.Group; group != currentGroup {
+		if group := groupHeader(choice); group != currentGroup {
 			currentGroup = group
 			sb.WriteString(currentGroup + ":\n")
 		}
@@ -1133,6 +1141,7 @@ func (m *Model) switchBackendModel(provider, model string) {
 	}
 	m.Ag.Backend = next
 	m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf("Модель сменена: %s/%s", provider, model)})
+	m.balanceAt = time.Time{} // the next tick asks for the new model's balance
 }
 
 func backendForProvider(provider string, cfg *config.Config, model string) (backend.Backend, error) {
@@ -1382,8 +1391,13 @@ func (m *Model) renderPopup() string {
 	return StylePopup.Width(maxInt(10, m.width-2)).Render(strings.Join(lines, "\n"))
 }
 
+// renderStatus is the line under the input: the current model on the left,
+// the money behind it in the middle, the session's counters on the right.
 func (m *Model) renderStatus() string {
-	left := " " + abbrevPath(m.Workspace)
+	left := " " + m.Cfg.Backend.Type + "/" + m.Cfg.Backend.Model
+	if m.Cfg.Backend.Type == "keytron" {
+		left = " " + m.Cfg.Backend.Model // the balance next to it already says KEYTRON or BYOK
+	}
 	if m.ptyActive {
 		target := "shell"
 		if m.focus == FocusPTY {
@@ -1392,12 +1406,30 @@ func (m *Model) renderStatus() string {
 		left += " · ⚙ " + m.ptyCmd + " · Tab: фокус " + target
 	}
 	right := fmt.Sprintf("инструменты %d · токены %s · /help ", m.Ag.Stats.ToolCalls, humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		left = truncate(left, maxInt(5, m.width-lipgloss.Width(right)-1))
-		gap = maxInt(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
+	if m.width < 100 {
+		right = fmt.Sprintf("токены %s · /help ", humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
 	}
-	return StyleDim.Render(left + strings.Repeat(" ", gap) + right)
+	center := m.statusBalance
+	room := m.width - lipgloss.Width(right)
+	if center != "" && room-lipgloss.Width(center) < 12 {
+		center = "" // a narrow terminal keeps the model readable
+	}
+	maxLeft := room - 1
+	if center != "" {
+		maxLeft = room/2 - lipgloss.Width(center)/2 - 1
+	}
+	if lipgloss.Width(left) > maxLeft {
+		left = truncate(left, maxInt(5, maxLeft))
+	}
+	if center == "" {
+		gap := maxInt(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
+		return StyleDim.Render(left + strings.Repeat(" ", gap) + right)
+	}
+	// the balance sits in the middle of the line, not between whatever is left
+	at := maxInt(lipgloss.Width(left)+1, (m.width-lipgloss.Width(center))/2)
+	gap2 := maxInt(1, m.width-at-lipgloss.Width(center)-lipgloss.Width(right))
+	return StyleDim.Render(left+strings.Repeat(" ", at-lipgloss.Width(left))) + StyleText.Render(center) +
+		StyleDim.Render(strings.Repeat(" ", gap2)+right)
 }
 
 func humanTokens(n int) string {
@@ -1463,7 +1495,7 @@ func (m *Model) openModelPicker(provider string) {
 		detail, aux, free := modelDetail(c)
 		items = append(items, pickItem{
 			Label:   modelLabel(c),
-			Group:   i18n.S(sectionTitles[c.Section]) + " · " + c.Group,
+			Group:   groupHeader(c),
 			Detail:  detail,
 			Current: c.Provider == m.Cfg.Backend.Type && c.Model == m.Cfg.Backend.Model,
 			Dim:     aux,
@@ -1500,7 +1532,7 @@ func (m *Model) openModelPicker(provider string) {
 		}
 		c := it.Value.(modelChoice)
 		m.switchBackendModel(c.Provider, c.Model)
-		return nil
+		return m.refreshBalance(true)
 	})
 	names := make([]string, 0, len(sectionTitles))
 	for _, t := range sectionTitles {
