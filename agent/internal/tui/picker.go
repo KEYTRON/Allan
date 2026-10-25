@@ -205,14 +205,14 @@ func (m *Model) openPicker(p *picker) {
 	m.picker = p
 	m.popupOpen = false
 	m.textarea.SetValue("")
-	m.textarea.Placeholder = "Enter — выбрать, печатайте для поиска" // ASCII first, see inputPlaceholder
+	m.textarea.Placeholder = i18n.S("Enter — выбрать, печатайте для поиска") // ASCII first, see inputPlaceholder
 	m.recalcLayout()
 }
 
 func (m *Model) closePicker() {
 	m.picker = nil
 	m.textarea.SetValue("")
-	m.textarea.Placeholder = inputPlaceholder
+	m.textarea.Placeholder = i18n.S(inputPlaceholder)
 	m.recalcLayout()
 }
 

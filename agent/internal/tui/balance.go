@@ -46,6 +46,10 @@ func (m *Model) refreshBalance(force bool) tea.Cmd {
 	m.balanceAt = time.Now()
 	provider, model := m.Cfg.Backend.Type, m.Cfg.Backend.Model
 	direct, hasDirect := m.Cfg.Providers[provider]
+	if provider != "keytron" && m.missingKey(provider) {
+		text := providerTitle(provider) + i18n.S(" · без ключа")
+		return func() tea.Msg { return statusBalanceMsg{text, time.Now()} }
+	}
 	keytron, hasKeytron := m.Cfg.Providers["keytron"]
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

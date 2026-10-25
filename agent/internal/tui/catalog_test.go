@@ -36,6 +36,17 @@ func TestPlaceModel(t *testing.T) {
 			t.Errorf("placeModel(%s, %s) = %d, want %d", c.provider, c.info.ID, got, c.section)
 		}
 	}
+	// a cloud key left in another desktop's wallet shows up instead of failing quietly
+	if _, g := m.placeModel("openrouter", backend.ModelInfo{ID: "x"}); g != "openrouter · без ключа" {
+		t.Errorf("keyless openrouter group = %q", g)
+	}
+	if m.missingKey("my-cloud") || m.missingKey("ollama") {
+		t.Error("custom and local providers need no key")
+	}
+	m.Cfg.Providers["openrouter"] = config.ProviderConfig{Type: "openai", BaseURL: "https://openrouter.ai/api/v1", APIKey: "k"}
+	if _, g := m.placeModel("openrouter", backend.ModelInfo{ID: "x"}); g != "openrouter" {
+		t.Errorf("openrouter with key group = %q", g)
+	}
 }
 
 func TestModelLabelAndDetail(t *testing.T) {

@@ -149,9 +149,20 @@ func (m *Model) placeModel(provider string, info backend.ModelInfo) (int, string
 		}
 	case m.personalProvider(provider):
 		return secMine, provider
+	case m.missingKey(provider):
+		return secDirect, provider + i18n.S(" · без ключа")
 	default:
 		return secDirect, provider
 	}
+}
+
+// missingKey reports a cloud provider whose key is not in the keyring (for
+// example left behind in another desktop's wallet): it may still list its
+// models, but every request fails.
+func (m *Model) missingKey(name string) bool {
+	preset, known := backend.ProviderPresets[name]
+	p, ok := m.Cfg.Providers[name]
+	return known && !preset.Local && (!ok || p.APIKey == "")
 }
 
 // personalProvider reports a custom provider that points at one of the

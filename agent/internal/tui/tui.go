@@ -97,7 +97,7 @@ type modelChoice struct {
 
 func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model {
 	ta := textarea.New()
-	ta.Placeholder = inputPlaceholder
+	ta.Placeholder = i18n.S(inputPlaceholder)
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
 	ta.Prompt = ""
@@ -685,6 +685,9 @@ func (m *Model) handleLang(args []string) {
 		return
 	}
 	i18n.Set(lang)
+	if m.picker == nil {
+		m.textarea.Placeholder = i18n.S(inputPlaceholder)
+	}
 	m.Cfg.TUI.Lang = string(lang)
 	if err := config.Save(m.Cfg); err != nil {
 		m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
@@ -1403,11 +1406,11 @@ func (m *Model) renderStatus() string {
 		if m.focus == FocusPTY {
 			target = "Allan"
 		}
-		left += " · ⚙ " + m.ptyCmd + " · Tab: фокус " + target
+		left += " · ⚙ " + m.ptyCmd + i18n.S(" · Tab: фокус ") + target
 	}
-	right := fmt.Sprintf("инструменты %d · токены %s · /help ", m.Ag.Stats.ToolCalls, humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
+	right := fmt.Sprintf(i18n.S("инструменты %d · токены %s · /help "), m.Ag.Stats.ToolCalls, humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
 	if m.width < 100 {
-		right = fmt.Sprintf("токены %s · /help ", humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
+		right = fmt.Sprintf(i18n.S("токены %s · /help "), humanTokens(m.Ag.Stats.TokensIn+m.Ag.Stats.TokensOut))
 	}
 	center := m.statusBalance
 	room := m.width - lipgloss.Width(right)

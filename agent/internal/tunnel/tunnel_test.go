@@ -67,25 +67,35 @@ func fakeSite(t *testing.T, token string, reqs []frame) (*httptest.Server, chan 
 	return srv, got
 }
 
+// parked keeps frames of other requests: they are served concurrently, so
+// their frames interleave with the ones being collected.
+var parked = map[string][]frame{}
+
 func collect(t *testing.T, got chan frame, id string) (status int, body string, endErr string) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
-		select {
-		case f := <-got:
-			if f.ID != id {
-				continue
+		var f frame
+		if q := parked[id]; len(q) > 0 {
+			f, parked[id] = q[0], q[1:]
+		} else {
+			select {
+			case f = <-got:
+			case <-deadline:
+				t.Fatalf("no end frame for %s", id)
 			}
-			switch f.T {
-			case "head":
-				status = f.Status
-			case "data":
-				body += string(f.B64)
-			case "end":
-				return status, body, f.Error
-			}
-		case <-deadline:
-			t.Fatalf("no end frame for %s", id)
+		}
+		if f.ID != id {
+			parked[f.ID] = append(parked[f.ID], f)
+			continue
+		}
+		switch f.T {
+		case "head":
+			status = f.Status
+		case "data":
+			body += string(f.B64)
+		case "end":
+			return status, body, f.Error
 		}
 	}
 }
