@@ -137,3 +137,34 @@ func TestPickerFoldsLongSections(t *testing.T) {
 		t.Fatalf("section: %d, note %q", len(p.visible), p.foldedNote())
 	}
 }
+
+func TestPickerArrowsSwitchGroups(t *testing.T) {
+	items := []pickItem{
+		{Label: "a", Group: "Этот ПК · ollama", Section: secLocal},
+		{Label: "b", Group: "Мои ПК · ollama-mac", Section: secMine},
+		{Label: "c", Group: "Напрямую · openrouter", Section: secDirect, Folded: true},
+		{Label: "d", Group: "Напрямую · openrouter", Section: secDirect, Folded: true},
+	}
+	p := newPicker("t", items, nil)
+	p.setSections(sectionTitles[:])
+	p.cycleGroup(1)
+	if p.group != "Этот ПК · ollama" || len(p.visible) != 1 {
+		t.Fatalf("first group: %q %d", p.group, len(p.visible))
+	}
+	p.cycleGroup(-1)
+	p.cycleGroup(-1) // from "all" back to the last group: folded items show in full
+	if p.group != "Напрямую · openrouter" || len(p.visible) != 2 {
+		t.Fatalf("last group: %q %d", p.group, len(p.visible))
+	}
+	p.cycleSection(1) // Tab leaves the group
+	if p.group != "" {
+		t.Fatalf("Tab kept group %q", p.group)
+	}
+}
+
+func TestOpenRouterSortsLast(t *testing.T) {
+	or := modelChoice{Provider: "keytron", Info: backend.ModelInfo{OwnedBy: "openrouter"}}
+	if !isOpenRouter(or) || isOpenRouter(modelChoice{Provider: "deepseek"}) {
+		t.Fatal("isOpenRouter")
+	}
+}

@@ -38,7 +38,9 @@ type picker struct {
 	section  int      // -1 — all sections
 	freeOnly bool
 	query    string
-	hidden   []int // per section: folded items left out of the current view
+	hidden   []int    // per section: folded items left out of the current view
+	groups   []string // providers and computers in list order, for ←/→
+	group    string   // "" — all groups
 }
 
 const pickerRows = 12
@@ -63,10 +65,10 @@ func (p *picker) filter(q string) {
 		keep = p.visible[p.selected]
 	}
 	p.visible = p.visible[:0]
-	fold := p.section == -1 && len(words) == 0
+	fold := p.section == -1 && p.group == "" && len(words) == 0
 	p.hidden = make([]int, len(p.sections))
 	for i, it := range p.items {
-		if p.section >= 0 && it.Section != p.section || p.freeOnly && !it.Free {
+		if p.section >= 0 && it.Section != p.section || p.freeOnly && !it.Free || p.group != "" && it.Group != p.group {
 			continue
 		}
 		if fold && it.Folded && !it.Current {
@@ -98,6 +100,14 @@ func (p *picker) filter(q string) {
 // setSections turns on tabs and folding; the cursor stays on the current item.
 func (p *picker) setSections(names []string) {
 	p.sections = names
+	p.groups = nil
+	seen := map[string]bool{}
+	for _, it := range p.items {
+		if it.Group != "" && !seen[it.Group] {
+			seen[it.Group] = true
+			p.groups = append(p.groups, it.Group)
+		}
+	}
 	p.filter(p.query)
 	for i, idx := range p.visible {
 		if p.items[idx].Current {
@@ -121,6 +131,7 @@ func (p *picker) counts() []int {
 // cycleSection moves to the next (or previous) non-empty section; "all" is
 // one of the stops.
 func (p *picker) cycleSection(delta int) {
+	p.group = ""
 	n := p.counts()
 	for range len(n) + 1 {
 		p.section += delta
@@ -134,6 +145,45 @@ func (p *picker) cycleSection(delta int) {
 		}
 	}
 	p.filter(p.query)
+}
+
+// cycleGroup steps through providers and computers one by one (←/→);
+// "all" is one of the stops. Groups with nothing to show are skipped.
+func (p *picker) cycleGroup(delta int) {
+	p.section = -1
+	at := -1
+	for i, g := range p.groups {
+		if g == p.group {
+			at = i
+		}
+	}
+	for range len(p.groups) + 1 {
+		at += delta
+		if at >= len(p.groups) {
+			at = -1
+		} else if at < -1 {
+			at = len(p.groups) - 1
+		}
+		if at == -1 || p.groupCount(p.groups[at]) > 0 {
+			break
+		}
+	}
+	p.group = ""
+	if at >= 0 {
+		p.group = p.groups[at]
+	}
+	p.filter(p.query)
+	p.selected = 0
+}
+
+func (p *picker) groupCount(g string) int {
+	n := 0
+	for _, it := range p.items {
+		if it.Group == g && (!p.freeOnly || it.Free) {
+			n++
+		}
+	}
+	return n
 }
 
 func (p *picker) move(delta int) {
@@ -187,6 +237,15 @@ func (m *Model) pickerKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			p.move(delta)
 		} else {
 			p.cycleSection(delta)
+		}
+	case tea.KeyLeft, tea.KeyRight:
+		if p.sections == nil {
+			return nil, false // without sections the arrows edit the filter text
+		}
+		if msg.Type == tea.KeyLeft {
+			p.cycleGroup(-1)
+		} else {
+			p.cycleGroup(1)
 		}
 	case tea.KeyCtrlF:
 		if p.sections == nil {
@@ -268,7 +327,7 @@ func (m *Model) renderPicker() string {
 	}
 	hint := i18n.S("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска")
 	if p.sections != nil {
-		hint = i18n.S("%d/%d · ↑↓/колесо выбор · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска")
+		hint = i18n.S("%d/%d · ↑↓/колесо выбор · ←→ провайдер · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска")
 	}
 	lines = append(lines, "", StyleDim.Render(truncate(fmt.Sprintf(hint, minInt(p.selected+1, len(p.visible)), len(p.visible)), inner)))
 	return StylePopup.Width(width).Render(strings.Join(lines, "\n"))
@@ -288,7 +347,7 @@ func (p *picker) renderTabs(width int) string {
 		}
 		return StyleMuted.Render(" " + s + " ")
 	}
-	parts := []string{tab(i18n.S("Все"), total, p.section == -1)}
+	parts := []string{tab(i18n.S("Все"), total, p.section == -1 && p.group == "")}
 	for i, name := range p.sections {
 		if n[i] > 0 {
 			parts = append(parts, tab(name, n[i], p.section == i))
@@ -301,6 +360,52 @@ func (p *picker) renderTabs(width int) string {
 	if lipgloss.Width(row) > width {
 		// narrow terminal: keep the active tab readable rather than the whole row
 		row = truncate(row, width)
+	}
+	if len(p.groups) > 1 {
+		row += "\n" + p.renderGroups(width)
+	}
+	return row
+}
+
+// renderGroups is the ←/→ row of providers and computers; it scrolls so the
+// active one is always in view.
+func (p *picker) renderGroups(width int) string {
+	labels := make([]string, len(p.groups))
+	active := -1
+	for i, g := range p.groups {
+		name := g
+		for _, sec := range p.sections {
+			name = strings.TrimPrefix(name, sec+" · ") // the section is on the row above
+		}
+		s := fmt.Sprintf("%s %d", name, p.groupCount(g))
+		if g == p.group {
+			active = i
+			labels[i] = StylePopupSelected.Render("[" + s + "]")
+		} else {
+			labels[i] = StyleDim.Render(" " + s + " ")
+		}
+	}
+	start := 0
+	for start < active {
+		w := 2
+		for _, l := range labels[start : active+1] {
+			w += lipgloss.Width(l) + 1
+		}
+		if w <= width-4 {
+			break
+		}
+		start++
+	}
+	row := ""
+	if start > 0 {
+		row = StyleDim.Render("← ")
+	}
+	for i := start; i < len(labels); i++ {
+		if lipgloss.Width(row)+lipgloss.Width(labels[i])+3 > width {
+			row += StyleDim.Render(" →")
+			break
+		}
+		row += labels[i] + " "
 	}
 	return row
 }
@@ -316,5 +421,5 @@ func (p *picker) foldedNote() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(i18n.S("  … ещё %s — Tab на раздел или поиск"), strings.Join(parts, ", "))
+	return fmt.Sprintf(i18n.S("  … ещё %s — ←→ провайдер, Tab раздел или поиск"), strings.Join(parts, ", "))
 }

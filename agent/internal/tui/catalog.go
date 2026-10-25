@@ -78,6 +78,10 @@ func (m *Model) refreshModelCatalog(ctx context.Context) error {
 	}
 	sort.SliceStable(choices, func(i, j int) bool {
 		a, b := choices[i], choices[j]
+		// OpenRouter has hundreds of models: whether direct or BYOK it goes to the very end
+		if ar, br := isOpenRouter(a), isOpenRouter(b); ar != br {
+			return br
+		}
 		if a.Section != b.Section {
 			return a.Section < b.Section
 		}
@@ -266,4 +270,8 @@ func groupHeader(c modelChoice) string {
 		return c.Group
 	}
 	return i18n.S(sectionTitles[c.Section]) + " · " + c.Group
+}
+
+func isOpenRouter(c modelChoice) bool {
+	return c.Provider == "openrouter" || c.Provider == "keytron" && c.Info.OwnedBy == "openrouter"
 }

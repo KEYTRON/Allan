@@ -459,9 +459,9 @@ add("$%s/$%s за 1M", "$%s/$%s per 1M", "$%s/$%s pro 1M")
 add("войти в KEYTRON Prime", "sign in to KEYTRON Prime", "bei KEYTRON Prime anmelden")
 add("Все", "All", "Alle")
 add("только бесплатные", "free only", "nur kostenlose")
-add("%d/%d · ↑↓/колесо выбор · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска",
-    "%d/%d · ↑↓/wheel move · Tab section · Ctrl+F free · Enter pick · Esc cancel · type to search",
-    "%d/%d · ↑↓/Rad wählen · Tab Bereich · Ctrl+F kostenlos · Enter nehmen · Esc abbrechen · tippen zum Suchen")
+add("%d/%d · ↑↓/колесо выбор · ←→ провайдер · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска",
+    "%d/%d · ↑↓/wheel move · ←→ provider · Tab section · Ctrl+F free · Enter pick · Esc cancel · type to search",
+    "%d/%d · ↑↓/Rad wählen · ←→ Anbieter · Tab Bereich · Ctrl+F kostenlos · Enter nehmen · Esc abbrechen · tippen zum Suchen")
 
 # --- /usage (usage.go) ---
 add("Расход: эта сессия, сегодня, месяц, год и балансы", "Spending: this session, today, month, year and balances", "Verbrauch: diese Sitzung, heute, Monat, Jahr und Guthaben")
@@ -490,7 +490,7 @@ add("%s · %d запр. · %s ток.", "%s · %d req. · %s tok.", "%s · %d An
 add(" · списано $%.4f", " · charged $%.4f", " · abgebucht $%.4f")
 
 # --- folded catalog (picker.go) ---
-add("  … ещё %s — Tab на раздел или поиск", "  … %s more — Tab to a section or search", "  … noch %s — Tab zum Bereich oder suchen")
+add("  … ещё %s — ←→ провайдер, Tab раздел или поиск", "  … %s more — ←→ provider, Tab section or search", "  … noch %s — ←→ Anbieter, Tab Bereich oder suchen")
 add("недавняя", "recent", "zuletzt")
 add("популярная", "popular", "beliebt")
 
