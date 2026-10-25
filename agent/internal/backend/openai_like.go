@@ -81,10 +81,7 @@ type oaiResponse struct {
 }
 
 type oaiModelsResp struct {
-	Data []struct {
-		ID   string `json:"id"`
-		Kind string `json:"kind"`
-	} `json:"data"`
+	Data []ModelInfo `json:"data"`
 }
 
 func toOAIMessages(messages []Message) []oaiMessage {
@@ -248,6 +245,19 @@ func (o *OpenAILike) Stream(ctx context.Context, messages []Message, tools []Too
 }
 
 func (o *OpenAILike) Models(ctx context.Context) ([]string, error) {
+	infos, err := o.ModelInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(infos))
+	for _, m := range infos {
+		out = append(out, m.ID)
+	}
+	return out, nil
+}
+
+// ModelInfos is Models with whatever the catalog says about each model.
+func (o *OpenAILike) ModelInfos(ctx context.Context) ([]ModelInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", o.baseURL+"/models", nil)
 	if err != nil {
 		return nil, err
@@ -266,14 +276,14 @@ func (o *OpenAILike) Models(ctx context.Context) ([]string, error) {
 	if err := json.Unmarshal(data, &mr); err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(mr.Data))
+	out := make([]ModelInfo, 0, len(mr.Data))
 	for _, m := range mr.Data {
 		// catalogs like KEYTRON Prime also list image, speech and embedding models;
 		// the agent can only talk to chat ones (a missing kind means chat)
-		if m.Kind != "" && m.Kind != "chat" {
+		if m.ID == "" || m.Kind != "" && m.Kind != "chat" {
 			continue
 		}
-		out = append(out, m.ID)
+		out = append(out, m)
 	}
 	return out, nil
 }

@@ -61,6 +61,31 @@ type Backend interface {
 	Health(ctx context.Context) error
 }
 
+// ModelInfo is a catalog entry. Plain OpenAI-compatible servers fill only ID;
+// KEYTRON Prime and OpenRouter-style catalogs add the rest.
+type ModelInfo struct {
+	ID      string     `json:"id"`
+	Kind    string     `json:"kind"`
+	Name    string     `json:"name"`
+	OwnedBy string     `json:"owned_by"`
+	Free    *bool      `json:"free"`
+	Price   *ModelCost `json:"price"`
+	Caps    []string   `json:"caps"`
+	Context int        `json:"context"`
+	Worker  string     `json:"worker"` // KEYTRON: the user's computer that serves the model
+}
+
+// ModelCost is dollars per million tokens.
+type ModelCost struct {
+	In  *float64 `json:"in"`
+	Out *float64 `json:"out"`
+}
+
+// ModelLister is implemented by backends whose catalog carries more than names.
+type ModelLister interface {
+	ModelInfos(ctx context.Context) ([]ModelInfo, error)
+}
+
 func New(cfg *config.Config) (Backend, error) {
 	if p, ok := cfg.Providers[cfg.Backend.Type]; ok {
 		model := cfg.Backend.Model

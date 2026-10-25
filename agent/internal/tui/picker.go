@@ -16,23 +16,31 @@ type pickItem struct {
 	Detail  string // dim text on the right
 	Current bool   // marks the active choice with ●
 	Dim     bool   // shown greyed out (e.g. embedding models)
+	Free    bool   // passes the "free only" filter
+	Section int    // index into picker.sections
 	Value   any
 }
 
 // picker is a modal list: arrows move, typing filters, Enter picks, Esc closes.
-// While it is open the input box acts as the filter field.
+// While it is open the input box acts as the filter field. With sections set,
+// Tab steps through them and Ctrl+F keeps only free items.
 type picker struct {
 	title    string
 	items    []pickItem
 	visible  []int // indexes into items that pass the filter
 	selected int   // index into visible
 	onPick   func(pickItem) tea.Cmd
+
+	sections []string // names of pickItem.Section values; nil — no tabs
+	section  int      // -1 — all sections
+	freeOnly bool
+	query    string
 }
 
 const pickerRows = 12
 
 func newPicker(title string, items []pickItem, onPick func(pickItem) tea.Cmd) *picker {
-	p := &picker{title: title, items: items, onPick: onPick}
+	p := &picker{title: title, items: items, onPick: onPick, section: -1}
 	p.filter("")
 	for i, idx := range p.visible {
 		if p.items[idx].Current {
@@ -44,6 +52,7 @@ func newPicker(title string, items []pickItem, onPick func(pickItem) tea.Cmd) *p
 
 // filter keeps items whose label, group or detail contain every word of q.
 func (p *picker) filter(q string) {
+	p.query = q
 	words := strings.Fields(strings.ToLower(q))
 	keep := -1 // item under the cursor stays selected if it still matches
 	if p.selected < len(p.visible) {
@@ -51,6 +60,9 @@ func (p *picker) filter(q string) {
 	}
 	p.visible = p.visible[:0]
 	for i, it := range p.items {
+		if p.section >= 0 && it.Section != p.section || p.freeOnly && !it.Free {
+			continue
+		}
 		hay := strings.ToLower(it.Label + " " + it.Group + " " + it.Detail)
 		ok := true
 		for _, w := range words {
@@ -69,6 +81,36 @@ func (p *picker) filter(q string) {
 			p.selected = i
 		}
 	}
+}
+
+// counts reports how many items each section has under the current
+// free-only setting, ignoring the text filter.
+func (p *picker) counts() []int {
+	n := make([]int, len(p.sections))
+	for _, it := range p.items {
+		if it.Section < len(n) && (!p.freeOnly || it.Free) {
+			n[it.Section]++
+		}
+	}
+	return n
+}
+
+// cycleSection moves to the next (or previous) non-empty section; "all" is
+// one of the stops.
+func (p *picker) cycleSection(delta int) {
+	n := p.counts()
+	for range len(n) + 1 {
+		p.section += delta
+		if p.section >= len(n) {
+			p.section = -1
+		} else if p.section < -1 {
+			p.section = len(n) - 1
+		}
+		if p.section == -1 || n[p.section] > 0 {
+			break
+		}
+	}
+	p.filter(p.query)
 }
 
 func (p *picker) move(delta int) {
@@ -109,10 +151,26 @@ func (m *Model) pickerKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case tea.KeyEsc:
 		m.closePicker()
 		return nil, true
-	case tea.KeyUp, tea.KeyShiftTab:
+	case tea.KeyUp:
 		p.move(-1)
-	case tea.KeyDown, tea.KeyTab:
+	case tea.KeyDown:
 		p.move(1)
+	case tea.KeyTab, tea.KeyShiftTab:
+		delta := 1
+		if msg.Type == tea.KeyShiftTab {
+			delta = -1
+		}
+		if p.sections == nil {
+			p.move(delta)
+		} else {
+			p.cycleSection(delta)
+		}
+	case tea.KeyCtrlF:
+		if p.sections == nil {
+			return nil, false
+		}
+		p.freeOnly = !p.freeOnly
+		p.filter(p.query)
 	case tea.KeyPgUp:
 		p.move(-pickerRows)
 	case tea.KeyPgDown:
@@ -152,11 +210,12 @@ func (m *Model) renderPicker() string {
 	}
 	labelW = minInt(labelW, maxInt(10, inner*2/3))
 
-	lines := []string{StyleBrand.Render(p.title), ""}
-	lastGroup := ""
-	if start > 0 {
-		lastGroup = p.items[p.visible[start-1]].Group
+	lines := []string{StyleBrand.Render(p.title)}
+	if p.sections != nil {
+		lines = append(lines, p.renderTabs(inner))
 	}
+	lines = append(lines, "")
+	lastGroup := "" // the first row always shows its group, even mid-list
 	for i := start; i < end; i++ {
 		it := p.items[p.visible[i]]
 		if it.Group != "" && it.Group != lastGroup {
@@ -181,7 +240,41 @@ func (m *Model) renderPicker() string {
 	if len(p.visible) == 0 {
 		lines = append(lines, StyleMuted.Render(i18n.S("  ничего не найдено")))
 	}
-	lines = append(lines, "", StyleDim.Render(fmt.Sprintf(i18n.S("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска"),
-		minInt(p.selected+1, len(p.visible)), len(p.visible))))
+	hint := i18n.S("%d/%d · ↑↓ выбор · Enter выбрать · Esc отмена · печатайте для поиска")
+	if p.sections != nil {
+		hint = i18n.S("%d/%d · ↑↓/колесо выбор · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска")
+	}
+	lines = append(lines, "", StyleDim.Render(truncate(fmt.Sprintf(hint, minInt(p.selected+1, len(p.visible)), len(p.visible)), inner)))
 	return StylePopup.Width(width).Render(strings.Join(lines, "\n"))
+}
+
+// renderTabs is the row of sections with their sizes; the active one is lit.
+func (p *picker) renderTabs(width int) string {
+	n := p.counts()
+	total := 0
+	for _, c := range n {
+		total += c
+	}
+	tab := func(name string, count int, on bool) string {
+		s := fmt.Sprintf("%s %d", name, count)
+		if on {
+			return StylePopupSelected.Render("[" + s + "]")
+		}
+		return StyleMuted.Render(" " + s + " ")
+	}
+	parts := []string{tab(i18n.S("Все"), total, p.section == -1)}
+	for i, name := range p.sections {
+		if n[i] > 0 {
+			parts = append(parts, tab(name, n[i], p.section == i))
+		}
+	}
+	row := strings.Join(parts, " ")
+	if p.freeOnly {
+		row += "  " + StyleOK.Render(i18n.S("только бесплатные"))
+	}
+	if lipgloss.Width(row) > width {
+		// narrow terminal: keep the active tab readable rather than the whole row
+		row = truncate(row, width)
+	}
+	return row
 }

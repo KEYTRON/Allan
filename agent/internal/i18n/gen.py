@@ -446,6 +446,50 @@ add('allan connect — связать эту машину с KEYTRON Prime\n\n  
     'allan connect — pair this machine with KEYTRON Prime\n\n  allan connect              show the page and take the code from it\n  allan connect <code>       exchange the code for a token right away (for scripts)\n  allan connect status       what is connected right now\n  allan connect url          just the link to the pairing page\n  Allan connect reset        forget the server and delete the token\n\nFlags:\n  --server <url>    KEYTRON Prime address (%s by default, or ALLAN_SERVER_URL)\n  --name <name>     how this PC is labelled in the app (hostname by default)\n  --address <url>   where the site reaches the worker (Tailscale address of this\n                    machine and port 8790 by default)\n\nHow it works: the page issues a one-time code after you sign in, this command\nexchanges the code for a shared token and keeps it in the system keyring. The\nphone and the site then reach the agent through the server with that token.\n',
     'allan connect — diese Maschine mit KEYTRON Prime verbinden\n\n  allan connect              Seite anzeigen und den Code von dort übernehmen\n  allan connect <Code>       Code sofort gegen einen Token tauschen (für Skripte)\n  allan connect status       was gerade verbunden ist\n  allan connect url          nur den Link zur Kopplungsseite\n  allan connect reset        Server vergessen und Token löschen\n\nFlags:\n  --server <url>    Adresse von KEYTRON Prime (standardmäßig %s, oder ALLAN_SERVER_URL)\n  --name <Name>     Bezeichnung dieses PCs in der App (standardmäßig der Hostname)\n  --address <url>   unter dieser Adresse erreicht die Seite den Worker (standardmäßig\n                    die Tailscale-Adresse dieser Maschine, Port 8790)\n\nSo funktioniert es: die Seite gibt nach der Anmeldung einen einmaligen Code aus,\ndieser Befehl tauscht ihn gegen einen gemeinsamen Token und legt ihn im System-Keyring\nab. Danach erreichen Handy und Webseite den Agenten über den Server mit diesem Token.\n')
 
+# --- model picker sections (catalog.go) ---
+add("Этот ПК", "This PC", "Dieser PC")
+add("Мои ПК", "My PCs", "Meine PCs")
+add("Ключи через KEYTRON", "Keys via KEYTRON", "Schlüssel über KEYTRON")
+add("Напрямую", "Direct", "Direkt")
+add("наши модели", "our models", "unsere Modelle")
+add(" · через KEYTRON", " · via KEYTRON", " · über KEYTRON")
+add("не подключено · /connect", "not connected · /connect", "nicht verbunden · /connect")
+add("токен не найден в keyring · /connect <код>", "token not found in keyring · /connect <code>", "Token nicht im Keyring · /connect <Code>")
+add("$%s/$%s за 1M", "$%s/$%s per 1M", "$%s/$%s pro 1M")
+add("войти в KEYTRON Prime", "sign in to KEYTRON Prime", "bei KEYTRON Prime anmelden")
+add("Все", "All", "Alle")
+add("только бесплатные", "free only", "nur kostenlose")
+add("%d/%d · ↑↓/колесо выбор · Tab раздел · Ctrl+F бесплатные · Enter выбрать · Esc отмена · печатайте для поиска",
+    "%d/%d · ↑↓/wheel move · Tab section · Ctrl+F free · Enter pick · Esc cancel · type to search",
+    "%d/%d · ↑↓/Rad wählen · Tab Bereich · Ctrl+F kostenlos · Enter nehmen · Esc abbrechen · tippen zum Suchen")
+
+# --- /usage (usage.go) ---
+add("Расход: эта сессия, сегодня, месяц, год и балансы", "Spending: this session, today, month, year and balances", "Verbrauch: diese Sitzung, heute, Monat, Jahr und Guthaben")
+add("Считаю расход…", "Counting usage…", "Verbrauch wird berechnet…")
+add("Сессия · с %s (%s)\n", "Session · since %s (%s)\n", "Sitzung · seit %s (%s)\n")
+add("  ходов %d · токены %s → %s · инструменты %d\n", "  turns %d · tokens %s → %s · tools %d\n", "  Züge %d · Tokens %s → %s · Werkzeuge %d\n")
+add("  через KEYTRON: %s\n", "  via KEYTRON: %s\n", "  über KEYTRON: %s\n")
+add("Сегодня", "Today", "Heute")
+add("Этот месяц", "This month", "Dieser Monat")
+add("Этот год", "This year", "Dieses Jahr")
+add("\nKEYTRON Prime не ответил: %v\n", "\nKEYTRON Prime did not answer: %v\n", "\nKEYTRON Prime antwortet nicht: %v\n")
+add("\nДень, месяц и год считает KEYTRON Prime, а эта машина к нему не подключена: %s\n",
+    "\nDay, month and year are counted by KEYTRON Prime, and this machine is not connected to it: %s\n",
+    "\nTag, Monat und Jahr zählt KEYTRON Prime, diese Maschine ist aber nicht verbunden: %s\n")
+add("\nБалансы\n", "\nBalances\n", "\nGuthaben\n")
+add("без ограничений", "unlimited", "unbegrenzt")
+add("нет средств", "no funds", "kein Guthaben")
+add(" (ключ на сайте)", " (key on the site)", " (Schlüssel auf der Seite)")
+add(" (ключ Allan)", " (Allan key)", " (Allan-Schlüssel)")
+add("не ответил: ", "no answer: ", "keine Antwort: ")
+add("лимит ключа", "key limit", "Schlüssellimit")
+add("  остаток сообщают DeepSeek, OpenRouter и ElevenLabs; у остальных — только в их кабинетах",
+    "  DeepSeek, OpenRouter and ElevenLabs report what is left; others only in their dashboards",
+    "  DeepSeek, OpenRouter und ElevenLabs melden das Restguthaben; andere nur in ihren Konten")
+add("%s · %d запр. · %s ток.", "%s · %d req. · %s tok.", "%s · %d Anfr. · %s Tok.")
+add(" · списано $%.4f", " · charged $%.4f", " · abgebucht $%.4f")
+
+
 def go_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
 

@@ -63,6 +63,10 @@ type Model struct {
 	turnModel      string    // provider/model that answers the current turn
 	quitArmedAt    time.Time // first Ctrl+C on an empty input; a second one quits
 	modelCatalog   []modelChoice
+	sessionUsage   map[string]*modelUsage // provider/model → spent this session
+	turnIn         int
+	turnOut        int
+	turnProvider   string
 
 	focus     FocusMode
 	ptyActive bool
@@ -84,6 +88,9 @@ type Model struct {
 type modelChoice struct {
 	Provider string
 	Model    string
+	Info     backend.ModelInfo
+	Section  int    // sec* constant, see catalog.go
+	Group    string // header inside the section
 }
 
 func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model {
@@ -148,6 +155,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.recalcLayout()
+	case tea.MouseMsg:
+		if m.picker != nil {
+			// the wheel scrolls the list, not the chat behind it
+			if msg.Action == tea.MouseActionPress {
+				switch msg.Button {
+				case tea.MouseButtonWheelUp:
+					m.picker.move(-1)
+				case tea.MouseButtonWheelDown:
+					m.picker.move(1)
+				}
+			}
+			m.recalcLayout()
+			return m, nil
+		}
 	case tea.KeyMsg:
 		if isMouseGarbage(msg) {
 			return m, nil
@@ -158,8 +179,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case agentEventMsg:
 		m.handleAgentEvent(msg.ev)
+	case usageMsg:
+		m.appendMsg(Message{Kind: MsgSys, Text: m.renderUsage(msg)})
 	case compactDoneMsg:
 		m.thinking = false
+		m.endTurnUsage()
 		if msg.err != nil {
 			m.appendMsg(Message{Kind: MsgError, Text: "/compact: " + humanError(msg.err.Error())})
 		} else {
@@ -168,6 +192,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case agentDoneMsg:
 		m.thinking = false
+		m.endTurnUsage()
 		if m.cancelRun != nil {
 			m.cancelRun()
 			m.cancelRun = nil
@@ -468,6 +493,7 @@ func (m *Model) startTurn(run func(ctx context.Context, events chan agent.Event)
 	m.thinkingLabel = i18n.S("Allan думает")
 	m.turnTokens = m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut
 	m.turnModel = m.Cfg.Backend.Model
+	m.beginTurnUsage()
 	m.recalcLayout()
 	events := make(chan agent.Event, 32)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -566,6 +592,9 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		return tea.Quit
 	case "/compact":
 		return m.startCompact()
+	case "/usage":
+		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Считаю расход…")})
+		return m.fetchUsage()
 	case "/clear":
 		m.messages = nil
 		m.Ag.ClearHistory()
@@ -983,45 +1012,6 @@ func (m *Model) handleModel(args []string) {
 	m.switchBackendModel(choice.Provider, choice.Model)
 }
 
-func (m *Model) refreshModelCatalog(ctx context.Context) error {
-	choices := []modelChoice{}
-	failures := []string{}
-	providers := m.availableProviders()
-	for _, name := range providers {
-		if hugeCatalogProvider(name) {
-			continue
-		}
-		be, err := backendForProvider(name, m.Cfg, m.Cfg.Backend.Model)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		pctx, cancel := context.WithTimeout(ctx, 6*time.Second)
-		models, err := be.Models(pctx)
-		cancel()
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		for _, model := range models {
-			if model != "" {
-				choices = append(choices, modelChoice{Provider: name, Model: model})
-			}
-		}
-	}
-	sort.SliceStable(choices, func(i, j int) bool {
-		if choices[i].Provider == choices[j].Provider {
-			return choices[i].Model < choices[j].Model
-		}
-		return choices[i].Provider < choices[j].Provider
-	})
-	m.modelCatalog = choices
-	if len(choices) == 0 && len(failures) > 0 {
-		return fmt.Errorf("не удалось получить модели: %s", strings.Join(failures, "; "))
-	}
-	return nil
-}
-
 func (m *Model) availableProviders() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -1049,11 +1039,11 @@ func (m *Model) renderModelCatalog() string {
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Текущая модель: %s/%s\n\n", m.Cfg.Backend.Type, m.Cfg.Backend.Model))
-	currentProvider := ""
+	currentGroup := ""
 	for i, choice := range m.modelCatalog {
-		if choice.Provider != currentProvider {
-			currentProvider = choice.Provider
-			sb.WriteString(currentProvider + ":\n")
+		if group := i18n.S(sectionTitles[choice.Section]) + " · " + choice.Group; group != currentGroup {
+			currentGroup = group
+			sb.WriteString(currentGroup + ":\n")
 		}
 		mark := " "
 		if choice.Provider == m.Cfg.Backend.Type && choice.Model == m.Cfg.Backend.Model {
@@ -1457,29 +1447,34 @@ func (m *Model) openModelPicker(provider string) {
 		m.appendMsg(Message{Kind: MsgWarn, Text: err.Error()})
 		return
 	}
-	items := make([]pickItem, 0, len(m.modelCatalog))
+	items := make([]pickItem, 0, len(m.modelCatalog)+1)
 	for _, c := range m.modelCatalog {
 		if provider != "" && c.Provider != provider {
 			continue
 		}
-		low := strings.ToLower(c.Model)
-		aux := strings.Contains(low, "embed") || strings.Contains(low, "ocr") || strings.Contains(low, "rerank")
-		detail := ""
-		if aux {
-			detail = "не для чата"
-		} else if strings.HasSuffix(low, ":cloud") || strings.HasSuffix(low, "-cloud") {
-			detail = "облако Ollama"
-		} else if strings.HasSuffix(low, "-free") || strings.HasSuffix(low, ":free") {
-			detail = "бесплатно"
-		}
+		detail, aux, free := modelDetail(c)
 		items = append(items, pickItem{
-			Label:   c.Model,
-			Group:   c.Provider,
+			Label:   modelLabel(c),
+			Group:   i18n.S(sectionTitles[c.Section]) + " · " + c.Group,
 			Detail:  detail,
 			Current: c.Provider == m.Cfg.Backend.Type && c.Model == m.Cfg.Backend.Model,
 			Dim:     aux,
+			Free:    free,
+			Section: c.Section,
 			Value:   c,
 		})
+	}
+	if status := m.keytronStatus(); provider == "" && status != "" {
+		// KEYTRON is always on the list, even when this machine has lost its way there
+		row := pickItem{Label: i18n.S("войти в KEYTRON Prime"), Group: sectionTitles[secKeytron], Detail: status, Section: secKeytron, Free: true, Value: keytronLogin{}}
+		at := len(items)
+		for i, it := range items {
+			if it.Section > secKeytron {
+				at = i
+				break
+			}
+		}
+		items = append(items[:at], append([]pickItem{row}, items[at:]...)...)
 	}
 	if len(items) == 0 {
 		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Модели не найдены. Добавьте ключ: /api add <provider> <api_key>") + m.hugeCatalogHint()})
@@ -1489,11 +1484,19 @@ func (m *Model) openModelPicker(provider string) {
 	if provider != "" {
 		title += " · " + provider
 	}
-	m.openPicker(newPicker(title, items, func(it pickItem) tea.Cmd {
+	p := newPicker(title, items, func(it pickItem) tea.Cmd {
+		if _, ok := it.Value.(keytronLogin); ok {
+			m.handleConnect(nil)
+			return nil
+		}
 		c := it.Value.(modelChoice)
 		m.switchBackendModel(c.Provider, c.Model)
 		return nil
-	}))
+	})
+	for _, t := range sectionTitles {
+		p.sections = append(p.sections, i18n.S(t))
+	}
+	m.openPicker(p)
 }
 
 // openProviderPicker lists configured and local providers; picking one
@@ -1595,6 +1598,7 @@ func (m *Model) startCompact() tea.Cmd {
 	m.thinkingLabel = "Сжимаю историю"
 	m.turnTokens = m.Ag.Stats.TokensIn + m.Ag.Stats.TokensOut
 	m.turnModel = m.Cfg.Backend.Model
+	m.beginTurnUsage()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelRun = cancel
 	m.recalcLayout()
