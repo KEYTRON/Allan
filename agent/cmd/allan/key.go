@@ -16,6 +16,7 @@ import (
 const keyUsage = `allan key — API-ключи провайдеров (хранятся в системном keyring, не в config.toml)
 
   allan key set <provider> [base_url]   ввести ключ скрытым вводом (или из stdin)
+  allan key login openrouter            войти в OpenRouter, ключ выдаст он сам
   allan key rm <provider>               удалить провайдер и его ключ
   allan key list                        провайдеры, эндпоинты и наличие ключей
 
@@ -76,6 +77,8 @@ func runKey(args []string) int {
 		}
 		prompt := fmt.Sprintf("API-ключ для %s: ", name)
 		switch name {
+		case "openrouter":
+			prompt = i18n.S("API-ключ OpenRouter (пусто — войти через OpenRouter в браузере): ")
 		case "huggingface":
 			prompt = "Токен Hugging Face (hf_…, huggingface.co/settings/tokens): "
 		case "gigachat":
@@ -86,21 +89,21 @@ func runKey(args []string) int {
 			fmt.Fprintf(os.Stderr, "ввод ключа: %v\n", err)
 			return 1
 		}
+		if key == "" && name == "openrouter" {
+			return loginOpenRouter(cfg)
+		}
 		if key == "" {
 			fmt.Fprintln(os.Stderr, "пустой ключ, ничего не сохранено")
 			return 1
 		}
-		if err := cfg.Secrets.Set(name, key); err != nil {
-			fmt.Fprintf(os.Stderr, "не удалось сохранить ключ в %s: %v\n", cfg.Secrets.Kind(), err)
-			return 1
-		}
-		p.APIKey = key
 		cfg.Providers[name] = p
-		if err := config.Save(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "config: %v\n", err)
-			return 1
+		return saveKey(cfg, name, key)
+	case "login":
+		if len(args) < 2 || backend.NormalizeProvider(args[1]) != "openrouter" {
+			fmt.Fprintln(os.Stderr, "allan key login openrouter")
+			return 2
 		}
-		fmt.Printf("Ключ для %s сохранён (%s), base_url=%s\n", name, cfg.Secrets.Kind(), p.BaseURL)
+		return loginOpenRouter(cfg)
 	case "rm", "remove", "delete":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "allan key rm <provider>")
@@ -121,6 +124,30 @@ func runKey(args []string) int {
 		fmt.Print(i18n.F(keyUsage, strings.Join(providers, ", ")))
 		return 2
 	}
+	return 0
+}
+
+// saveKey puts the key into the secret store and the provider into the config,
+// filling in the preset base URL and type for a known provider.
+func saveKey(cfg *config.Config, name, key string) int {
+	p := cfg.Providers[name]
+	if p.BaseURL == "" {
+		p.BaseURL = backend.DefaultBaseURL(name)
+	}
+	if p.Type == "" {
+		p.Type = backend.ProviderType(name)
+	}
+	if err := cfg.Secrets.Set(name, key); err != nil {
+		fmt.Fprintf(os.Stderr, "не удалось сохранить ключ в %s: %v\n", cfg.Secrets.Kind(), err)
+		return 1
+	}
+	p.APIKey = key
+	cfg.Providers[name] = p
+	if err := config.Save(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	fmt.Printf("Ключ для %s сохранён (%s), base_url=%s\n", name, cfg.Secrets.Kind(), p.BaseURL)
 	return 0
 }
 
