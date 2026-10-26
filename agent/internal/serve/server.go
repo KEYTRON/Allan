@@ -487,14 +487,25 @@ func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "нужен model")
 		return
 	}
-	provider := backend.NormalizeProvider(req.Provider)
-	if provider == "" {
-		provider = "openai"
-	}
 	rt, err := s.runtimeFor(r)
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
+	}
+	// No provider means "another model of the current one": falling back to
+	// openai would silently switch a keyless machine to a provider it cannot use.
+	provider := backend.NormalizeProvider(req.Provider)
+	if provider == "" {
+		provider = backend.NormalizeProvider(rt.Cfg.Backend.Type)
+	}
+	if provider == "" {
+		provider = "openai"
+	}
+	if preset, known := backend.ProviderPresets[provider]; known && !preset.Local {
+		if p, ok := rt.Cfg.Providers[provider]; !ok || p.APIKey == "" {
+			writeErr(w, http.StatusBadRequest, "у провайдера "+provider+" нет ключа на этом компьютере")
+			return
+		}
 	}
 	be, err := backend.ForProvider(provider, rt.Cfg, req.Model)
 	if err != nil {
