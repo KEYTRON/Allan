@@ -137,6 +137,57 @@ func compressHistory(history []backend.Message, keepLastResults int) []backend.M
 	return out
 }
 
+const (
+	skippedToolResult = "Не выполнено: достигнут лимит tool calls на один запрос."
+	limitNote         = "Лимит вызовов инструментов на этот запрос исчерпан. Ответь по тому, что уже удалось узнать, и скажи, чего не хватило."
+)
+
+// closeToolCalls answers every tool call that has no tool message after it.
+// OpenAI-compatible APIs reject a history where an assistant tool_calls message
+// is not followed by a result for each call id; such gaps appear when the turn
+// stops at the tool-call limit or is interrupted between the calls.
+func closeToolCalls(history []backend.Message) []backend.Message {
+	var out []backend.Message
+	for i := 0; i < len(history); i++ {
+		m := history[i]
+		if out != nil {
+			out = append(out, m)
+		}
+		if m.Role != backend.RoleAssistant || len(m.ToolCalls) == 0 {
+			continue
+		}
+		answered := map[string]bool{}
+		j := i + 1
+		for ; j < len(history) && history[j].Role == backend.RoleTool; j++ {
+			answered[history[j].ToolCallID] = true
+		}
+		var missing []backend.Message
+		for _, tc := range m.ToolCalls {
+			if !answered[tc.ID] {
+				missing = append(missing, backend.Message{
+					Role:       backend.RoleTool,
+					Content:    skippedToolResult,
+					ToolCallID: tc.ID,
+					Name:       tc.Name,
+				})
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		if out == nil {
+			out = append(make([]backend.Message, 0, len(history)+len(missing)), history[:i+1]...)
+		}
+		out = append(out, history[i+1:j]...)
+		out = append(out, missing...)
+		i = j - 1
+	}
+	if out == nil {
+		return history
+	}
+	return out
+}
+
 func truncateString(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -203,7 +254,7 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 		if a.Cfg.Agent.ScratchpadEnabled {
 			hist = compressHistory(hist, keep)
 		}
-		msgs = append(msgs, hist...)
+		msgs = append(msgs, closeToolCalls(hist)...)
 
 		resp, err := a.Backend.Chat(ctx, msgs, defs)
 		if err != nil {
@@ -232,9 +283,26 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 
 		if i >= maxCalls {
 			events <- Event{Kind: "warn", Text: fmt.Sprintf("Превышен лимит tool calls (%d)", maxCalls)}
-			if resp.Content != "" {
-				events <- Event{Kind: "final", Text: resp.Content}
+			// Every tool call must get an answer, or the next request fails with
+			// "assistant message with 'tool_calls' must be followed by tool messages".
+			a.History = closeToolCalls(a.History)
+			msgs := []backend.Message{{Role: backend.RoleSystem, Content: a.systemWithSkills(ctx, userInput)}}
+			msgs = append(msgs, a.History...)
+			msgs = append(msgs, backend.Message{Role: backend.RoleUser, Content: limitNote})
+			final, err := a.Backend.Chat(ctx, msgs, nil)
+			if err != nil || final.Content == "" {
+				if resp.Content != "" {
+					events <- Event{Kind: "final", Text: resp.Content}
+				}
+				return
 			}
+			a.Stats.TokensIn += final.TokensIn
+			a.Stats.TokensOut += final.TokensOut
+			a.History = append(a.History, backend.Message{Role: backend.RoleAssistant, Content: final.Content})
+			if a.Memory != nil {
+				_ = a.Memory.AppendMessage(ctx, a.SessionID, "assistant", final.Content)
+			}
+			events <- Event{Kind: "final", Text: final.Content}
 			return
 		}
 
