@@ -88,11 +88,25 @@ func New(cfg *config.Config, b backend.Backend, reg *tools.Registry, mem *memory
 	}
 }
 
+// AllanLMCoAuthor credits Allan-LM, KEYTRON's own model, in commits it helps to
+// write: the noreply address of the keytron-ai GitHub account links the
+// co-author to that account's profile.
+const AllanLMCoAuthor = "Co-Authored-By: Allan-LM <348449664+keytron-ai@users.noreply.github.com>"
+
+// isAllanLM reports whether the model is Allan-LM under any provider prefix
+// ("allan-lm", "keytron/allan-lm-1b", "allan/2/ollama/allan-lm:latest").
+func isAllanLM(model string) bool {
+	return strings.Contains(strings.ToLower(model), "allan-lm")
+}
+
 func (a *Agent) SystemPrompt() string {
 	p := SystemPromptTemplate
 	p = strings.ReplaceAll(p, "{workspace}", a.Workspace)
 	p = strings.ReplaceAll(p, "{os}", runtime.GOOS)
 	p = strings.ReplaceAll(p, "{arch}", runtime.GOARCH)
+	if a.Cfg != nil && isAllanLM(a.Cfg.Backend.Model) {
+		p += "\n\nGit: end every commit message you write with an empty line and then exactly:\n" + AllanLMCoAuthor
+	}
 	return p
 }
 
