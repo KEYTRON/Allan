@@ -65,3 +65,29 @@ api_key = "sk-old"
 		t.Fatal("key not restored from secret store on second load")
 	}
 }
+
+// Configs written before 0.4.10 carry max_tool_calls = 10; Load raises it.
+func TestLoadRaisesOldToolCallLimit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ALLAN_SECRETS", "file")
+	dir := filepath.Join(home, ".allan")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[agent]\nmax_tool_calls = 10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.MaxToolCalls != DefaultMaxToolCalls {
+		t.Fatalf("max_tool_calls = %d, want %d", cfg.Agent.MaxToolCalls, DefaultMaxToolCalls)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "max_tool_calls = 50") {
+		t.Fatalf("limit not saved:\n%s", data)
+	}
+}

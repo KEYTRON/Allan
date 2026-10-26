@@ -154,7 +154,7 @@ state: step=2 done=[read,patch] errors=[]
 ```toml
 [agent]
 workspace = "."
-max_tool_calls = 10
+max_tool_calls = 50
 tool_timeout = 30
 scratchpad_enabled = true
 scratchpad_keep_last_results = 2
@@ -439,7 +439,7 @@ ReAct-цикл:
 user_input → planner → [tool_call → tool_result] × N → final_response
 ```
 
-Лимиты: 10 tool calls и 30 сек на тулзу (конфигурируемо).
+Лимиты: 50 tool calls и 30 сек на тулзу (конфигурируемо).
 
 ---
 

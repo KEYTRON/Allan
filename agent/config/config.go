@@ -99,11 +99,19 @@ type SSHToolConfig struct {
 	DefaultTimeout   int  `toml:"default_timeout"`
 }
 
+// DefaultMaxToolCalls is the per-request tool-call limit. Configs written
+// before 0.4.10 carry the old default of 10, which a single web search used up;
+// Load raises that value to the new default.
+const (
+	DefaultMaxToolCalls = 50
+	oldMaxToolCalls     = 10
+)
+
 func Default() *Config {
 	return &Config{
 		Agent: AgentConfig{
 			Workspace:                ".",
-			MaxToolCalls:             10,
+			MaxToolCalls:             DefaultMaxToolCalls,
 			ToolTimeout:              30,
 			ScratchpadEnabled:        true,
 			ScratchpadKeepLastResult: 2,
@@ -224,6 +232,12 @@ func Load() (*Config, bool, error) {
 	cfg.Secrets = secrets.Open(dir)
 	if err := cfg.loadSecrets(); err != nil {
 		return nil, false, err
+	}
+	if cfg.Agent.MaxToolCalls == oldMaxToolCalls {
+		cfg.Agent.MaxToolCalls = DefaultMaxToolCalls
+		if err := Save(cfg); err != nil {
+			return nil, false, err
+		}
 	}
 	return cfg, false, nil
 }

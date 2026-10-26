@@ -30,7 +30,7 @@ func scanLangFlag(args []string) string {
 	return ""
 }
 
-var version = "0.4.9"
+var version = "0.4.10"
 
 // resumeFlag accepts both "allan --resume" and "allan --resume <id>" (also
 // "allan --resume=<id>"). Go's flag package cannot do that with a plain Bool:

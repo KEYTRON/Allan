@@ -233,7 +233,7 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 
 	maxCalls := a.Cfg.Agent.MaxToolCalls
 	if maxCalls <= 0 {
-		maxCalls = 10
+		maxCalls = config.DefaultMaxToolCalls
 	}
 	toolTimeout := time.Duration(a.Cfg.Agent.ToolTimeout) * time.Second
 	if toolTimeout <= 0 {
