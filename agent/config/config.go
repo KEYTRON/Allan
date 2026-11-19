@@ -25,6 +25,32 @@ type Config struct {
 	// Audio lists speech engines on this machine beyond the ones allan serve
 	// finds by itself (whisper, Ollama ASR models, MLX TTS).
 	Audio []AudioEngine `toml:"audio,omitempty"`
+	// MCP — внешние MCP-серверы: их инструменты становятся инструментами агента
+	// под именами mcp__<сервер>__<инструмент>. Ключ таблицы — имя сервера.
+	MCP map[string]MCPServer `toml:"mcp,omitempty"`
+}
+
+// MCPServer описывает один MCP-сервер: либо команду (stdio), либо адрес (HTTP).
+// В значениях env и headers работают ссылки на переменные окружения: ${NAME}.
+type MCPServer struct {
+	Command string            `toml:"command,omitempty"`
+	Args    []string          `toml:"args,omitempty"`
+	Env     map[string]string `toml:"env,omitempty"`
+	URL     string            `toml:"url,omitempty"`
+	// Transport для URL: "http" (streamable HTTP, по умолчанию) или "sse" (старый).
+	Transport string            `toml:"transport,omitempty"`
+	Headers   map[string]string `toml:"headers,omitempty"`
+	// Tools — если задан, агенту отдаются только эти инструменты сервера:
+	// у некоторых серверов их десятки, и каждый съедает контекст модели.
+	Tools    []string `toml:"tools,omitempty"`
+	Disabled bool     `toml:"disabled,omitempty"`
+	// Load — когда схемы инструментов сервера уходят модели:
+	// "auto" (по умолчанию) — сразу, пока все такие серверы вместе легче
+	// tools.mcp_auto_tokens, иначе по требованию через load_tools;
+	// "always" — в каждом запросе; "deferred" — только по требованию.
+	Load string `toml:"load,omitempty"`
+	// Timeout вызова инструмента в секундах (по умолчанию 120).
+	Timeout int `toml:"timeout,omitempty"`
 }
 
 // AudioEngine is a speech-to-text or text-to-speech command on this machine.
@@ -83,6 +109,10 @@ type MemoryConfig struct {
 type ToolsConfig struct {
 	Shell ShellToolConfig `toml:"shell"`
 	SSH   SSHToolConfig   `toml:"ssh"`
+	// MCPAutoTokens — порог для MCP-серверов с load = "auto": если их схемы
+	// вместе тяжелее (оценка в токенах), модель видит только каталог и
+	// подгружает нужное сама. 0 — 4000, -1 — всегда показывать всё.
+	MCPAutoTokens int `toml:"mcp_auto_tokens,omitempty"`
 }
 
 type ShellToolConfig struct {

@@ -600,6 +600,9 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 	case "/usage":
 		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Считаю расход…")})
 		return m.fetchUsage()
+	case "/mcp":
+		m.appendMsg(Message{Kind: MsgSys, Text: m.mcpStatusText()})
+		return nil
 	case "/clear":
 		m.messages = nil
 		m.Ag.ClearHistory()
