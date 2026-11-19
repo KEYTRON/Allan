@@ -534,9 +534,9 @@ add("выбрать модель синтеза речи (BYOK, Мои ПК, Л�
 add("Модель распознавания речи (STT — BYOK, Мои ПК, Realtime, Локально)",
     "Speech recognition model (STT — BYOK, My PCs, Realtime, Local)",
     "Spracherkennungsmodell (STT — BYOK, Meine PCs, Realtime, Lokal)")
-add("Использование: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]",
-    "Usage: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]",
-    "Verwendung: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]")
+add("Использование: /voice [stt|tts|voice|lang|realtime|refresh|auto|record|test|stop|on|off]",
+    "Usage: /voice [stt|tts|voice|lang|realtime|refresh|auto|record|test|stop|on|off]",
+    "Verwendung: /voice [stt|tts|voice|lang|realtime|refresh|auto|record|test|stop|on|off]")
 add("выбрать модель распознавания (BYOK, Мои ПК, Realtime, Локально)",
     "pick a recognition model (BYOK, My PCs, Realtime, Local)",
     "Erkennungsmodell wählen (BYOK, Meine PCs, Realtime, Lokal)")
@@ -601,6 +601,10 @@ add("  вывод (TTS)    %s · %s (/voice tts — список моделей,
 add("  каталог сети   облако BYOK: %d STT / %d TTS · другие ПК: %d (/voice refresh)\n",
     "  network        cloud BYOK: %d STT / %d TTS · other PCs: %d (/voice refresh)\n",
     "  Netzwerk       Cloud-BYOK: %d STT / %d TTS · andere PCs: %d (/voice refresh)\n")
+
+add("Язык речи: %s (/voice lang ru|en|de|auto|system)",
+    "Speech language: %s (/voice lang ru|en|de|auto|system)",
+    "Sprache der Rede: %s (/voice lang ru|en|de|auto|system)")
 
 # --- голосовой модуль и визуализатор (/voice, Push-to-Talk по Пробелу) ---
 add("Голосовой ввод/вывод и визуализатор: /voice [on|off|tts|auto|stt|record|test|stop]",

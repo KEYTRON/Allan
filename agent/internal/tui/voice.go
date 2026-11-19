@@ -47,12 +47,12 @@ type VoiceHub struct {
 	// зажатие Пробела в непустом поле (дописать голосом): серия пробелов подряд
 	TypedSpaceRun int
 	TypedSpaceAt  time.Time
-	ActiveEngine string
-	StatusNote   string
-	StatusNoteAt time.Time
-	TickRunning  bool
-	SpinnerFrame int
-	SpeakCancel  context.CancelFunc
+	ActiveEngine  string
+	StatusNote    string
+	StatusNoteAt  time.Time
+	TickRunning   bool
+	SpinnerFrame  int
+	SpeakCancel   context.CancelFunc
 }
 
 type voiceVisTickMsg struct{}
@@ -304,7 +304,7 @@ func (m *Model) stopVoiceRecording(cancelOnly bool) tea.Cmd {
 	m.voice.State = VoiceTranscribing
 	m.voice.SpinnerFrame = 0
 	cfg := m.Cfg
-	lang := string(i18n.Get())
+	lang := voice.SpeechLang(cfg.TUI.VoiceLang)
 	return tea.Batch(m.ensureVoiceTick(), func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
@@ -343,7 +343,7 @@ func (m *Model) startVoiceTTS(replyText string) tea.Cmd {
 	m.voice.State = VoiceSpeaking
 	m.voice.ActiveEngine = m.preferredTTSEngineLabel()
 	cfg := m.Cfg
-	lang := string(i18n.Get())
+	lang := voice.SpeechLang(cfg.TUI.VoiceLang)
 
 	return tea.Batch(m.ensureVoiceTick(), func() tea.Msg {
 		defer cancel()
@@ -930,6 +930,21 @@ func (m *Model) handleVoiceSlash(args []string) tea.Cmd {
 		m.Cfg.TUI.VoiceEnabled = false
 		_ = config.Save(m.Cfg)
 		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Голосовой модуль скрыт (/voice on — вернуть)")})
+	case "lang":
+		if len(args) >= 2 {
+			v := strings.ToLower(strings.TrimSpace(args[1]))
+			if v == "system" || v == "default" {
+				v = ""
+			}
+			m.Cfg.TUI.VoiceLang = v
+			_ = config.Save(m.Cfg)
+		}
+		cur := voice.SpeechLang(m.Cfg.TUI.VoiceLang)
+		if cur == "" {
+			cur = "auto"
+		}
+		m.appendMsg(Message{Kind: MsgSys, Text: fmt.Sprintf(i18n.S("Язык речи: %s (/voice lang ru|en|de|auto|system)"), cur)})
+		return nil
 	case "auto":
 		if len(args) >= 2 {
 			m.Cfg.TUI.VoiceAutoSend = strings.ToLower(args[1]) == "on"
@@ -956,7 +971,7 @@ func (m *Model) handleVoiceSlash(args []string) tea.Cmd {
 		m.stopVoiceSpeaking()
 		m.setVoiceNote(i18n.S("остановлено"))
 	default:
-		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Использование: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]")})
+		m.appendMsg(Message{Kind: MsgWarn, Text: i18n.S("Использование: /voice [stt|tts|voice|lang|realtime|refresh|auto|record|test|stop|on|off]")})
 	}
 	m.recalcLayout()
 	return nil

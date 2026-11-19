@@ -76,6 +76,9 @@ type TUIConfig struct {
 	VoiceSTTModel string `toml:"voice_stt_model,omitempty"`
 	VoiceTTSModel string `toml:"voice_tts_model,omitempty"`
 	VoiceTTSVoice string `toml:"voice_tts_voice,omitempty"`
+	// VoiceLang — язык речи для распознавания и озвучки (ru, en, de, …; "auto" —
+	// модель определяет сама). Пусто — по локали системы, не по языку интерфейса.
+	VoiceLang string `toml:"voice_lang,omitempty"`
 }
 
 type MemoryConfig struct {

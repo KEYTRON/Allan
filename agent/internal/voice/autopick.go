@@ -2,6 +2,8 @@ package voice
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,8 @@ import (
 // но у части провайдеров в любой момент может кончиться баланс или сработать
 // лимит. Поэтому пробуем несколько кандидатов по очереди, запоминаем первую
 // сработавшую модель на всю сессию, а упавшую на время убираем из очереди.
+
+var errEmptyTranscript = errors.New("модели вернули пустой текст")
 
 const (
 	maxAutoAttempts = 5
@@ -114,7 +118,17 @@ func autoTranscribe(ctx context.Context, cfg *config.Config, wav []byte, lang st
 			break
 		}
 		tries++
+		t0 := time.Now()
 		txt, label, err := executeCloudOrRemoteSTT(ctx, cfg, c.ID, lang, wav)
+		if err == nil && strings.TrimSpace(txt) == "" {
+			// речь была (тишину сюда не шлём), а текста нет — модель не справилась
+			// (например, ещё грузится на холодном старте): пробуем следующую,
+			// но надолго не выкидываем
+			logAttempt("stt", c.ID, lang, time.Since(t0), "пусто → следующая", nil)
+			lastErr = errEmptyTranscript
+			continue
+		}
+		logAttempt("stt", c.ID, lang, time.Since(t0), fmt.Sprintf("ok, %d симв.", len([]rune(txt))), err)
 		if err == nil {
 			markAutoGood("stt", c.ID)
 			return txt, label, nil, true
@@ -138,7 +152,9 @@ func autoSynthesize(ctx context.Context, cfg *config.Config, text, lang, voiceID
 		if v == "" && len(c.Voices) > 0 {
 			v = pickBestVoiceOption(c.Voices, lang, text)
 		}
+		t0 := time.Now()
 		w, label, err := executeCloudOrRemoteTTS(ctx, cfg, c.ID, v, lang, text)
+		logAttempt("tts", c.ID, lang, time.Since(t0), fmt.Sprintf("ok, %d байт", len(w)), err)
 		if err == nil && len(w) > 0 {
 			markAutoGood("tts", c.ID)
 			return w, label, nil, true

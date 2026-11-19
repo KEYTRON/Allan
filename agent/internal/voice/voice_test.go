@@ -89,3 +89,22 @@ func TestCleanMarkdownForSpeech(t *testing.T) {
 		t.Fatalf("prose content lost: %q", got)
 	}
 }
+
+func TestSpeechLangFollowsLocaleNotUI(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "ru_RU.UTF-8")
+	if got := SpeechLang(""); got != "ru" {
+		t.Fatalf("locale ru: got %q", got)
+	}
+	if got := SpeechLang("auto"); got != "" {
+		t.Fatalf("auto: got %q", got)
+	}
+	if got := SpeechLang("DE"); got != "de" {
+		t.Fatalf("explicit: got %q", got)
+	}
+	t.Setenv("LANG", "C.UTF-8")
+	if got := SpeechLang(""); got != "" {
+		t.Fatalf("C locale: got %q", got)
+	}
+}
