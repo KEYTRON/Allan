@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.11
+Stage: 0.4.12
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -37,7 +37,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] `--resume [id]` really resumes: history is loaded and shown; a specific session id can be given
 - [x] Retry instead of retyping: after `/model` an interrupted request repeats on the new model (`/retry` too)
 - [x] Skill Engine no longer saves skills for greetings and one-tool turns (cooldown, duplicate check, `skill_enabled`)
-- [ ] MCP support: connect MCP servers (stdio and HTTP) as agent tools
+- [x] MCP support: connect MCP servers (stdio and HTTP) as agent tools; schemas load on demand (`load_tools`) so they do not eat the context
 - [ ] Test the agent on free models (OpenRouter free, Ollama Cloud Free): tool calls, long sessions
 - [x] Several PCs per account: stable `machine_id` (`allan id`, shown in `--help`), name and worker address at `allan connect`, a PC picker in the app; workers isolated between users
 - [x] Secrets fallback: when the keyring refuses (macOS over SSH) the token goes to `~/.allan/secrets.json` (0600)
@@ -51,6 +51,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] 0.4.9: OpenRouter sign-in in the browser (`allan key login openrouter`)
 - [x] 0.4.10: tool-call limit 50 (old configs with 10 are raised), history survives hitting the limit, Allan-LM credited as commit co-author
 - [x] 0.4.11: NVIDIA, Mistral, Gemini, Perplexity and Liquid AI providers; embeddings, rerankers and safety classifiers are kept out of `/model`; golang.org/x/crypto 0.59.0
+- [x] 0.4.12: MCP client (`allan mcp`, `/mcp`, on-demand `load_tools`); voice in the TUI: hold Space to dictate, Ctrl+G, spoken replies, a spectrum dock, STT/TTS through KEYTRON BYOK, own PCs and local engines with automatic fallback; speech language from the system locale (no voice input in Termux)
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases

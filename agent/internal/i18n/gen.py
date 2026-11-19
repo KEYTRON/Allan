@@ -684,6 +684,12 @@ add("показать состояние голосового модуля",
     "Status des Sprachmoduls anzeigen")
 
 
+add("  ввод (STT)     недоступен в Termux: нет доступа к микрофону\n",
+    "  input (STT)    not available in Termux: no microphone access\n",
+    "  Eingabe (STT)  in Termux nicht verfügbar: kein Mikrofonzugriff\n")
+add(" 🔊 Ответы озвучиваются · голосовой ввод в Termux недоступен · /voice tts — выбор голоса",
+    " 🔊 Replies are spoken · voice input is not available in Termux · /voice tts — pick a voice",
+    " 🔊 Antworten werden vorgelesen · Spracheingabe in Termux nicht verfügbar · /voice tts — Stimme wählen")
 # --- MCP (allan mcp, /mcp) ---
 add(" · инструментов: %d, ~%d токенов", " · tools: %d, ~%d tokens", " · Werkzeuge: %d, ~%d Tokens")
 add(" · скрыто до load_tools: %d", " · hidden until load_tools: %d", " · bis load_tools verborgen: %d")

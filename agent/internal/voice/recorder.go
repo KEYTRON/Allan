@@ -195,7 +195,18 @@ func (r *Recorder) readLoop(stdout io.ReadCloser, doneCh chan struct{}) {
 	}
 }
 
+// CanRecord — можно ли писать микрофон на этой платформе. В Termux (Android)
+// нет PulseAudio/ALSA-захвата, доступного обычному процессу, поэтому голосовой
+// ввод там выключен; озвучка ответов работает.
+func CanRecord() bool { return runtime.GOOS != "android" }
+
+// ErrNoRecordTermux — объяснение для пользователя Termux.
+var ErrNoRecordTermux = fmt.Errorf("в Termux голосовой ввод не поддерживается (нет доступа к микрофону); озвучка ответов работает")
+
 func captureCommand() (string, []string, error) {
+	if !CanRecord() {
+		return "", nil, ErrNoRecordTermux
+	}
 	if bin, err := exec.LookPath("parec"); err == nil {
 		return bin, []string{
 			"--format=s16le",

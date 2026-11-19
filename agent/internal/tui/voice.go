@@ -201,7 +201,7 @@ func (m *Model) handleVoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	// второй пробел через 300–780 мс (задержка повтора), третий быстрее 150 мс
 	// (частота повтора). Тогда убираем вставленные пробелы и пишем голос,
 	// распознанное допишется к тексту. Ручной двойной пробел так не срабатывает.
-	if m.Cfg.TUI.VoiceEnabled && !m.thinking && m.picker == nil && !m.popupOpen &&
+	if m.Cfg.TUI.VoiceEnabled && voice.CanRecord() && !m.thinking && m.picker == nil && !m.popupOpen &&
 		m.focus == FocusTUI && m.textarea.Value() != "" && m.voice.State != VoiceTranscribing {
 		if !isSpaceKey(msg) {
 			m.voice.TypedSpaceRun = 0
@@ -235,7 +235,7 @@ func (m *Model) handleVoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	}
 
 	// Space on empty input when VoiceEnabled is on starts Push-to-Talk / Tap-VAD recording.
-	if m.Cfg.TUI.VoiceEnabled && !m.thinking && m.picker == nil && !m.popupOpen &&
+	if m.Cfg.TUI.VoiceEnabled && voice.CanRecord() && !m.thinking && m.picker == nil && !m.popupOpen &&
 		m.focus == FocusTUI && m.textarea.Value() == "" && isSpaceKey(msg) {
 		if m.voice.State == VoiceSpeaking {
 			m.stopVoiceSpeaking()
@@ -790,7 +790,11 @@ func (m *Model) renderVoiceDock() string {
 	case VoiceSpeaking:
 		hint = i18n.S(" 🔊 Озвучиваю ответ агента (Esc или /voice stop — остановить)")
 	default:
-		hint = i18n.S(" 🎙 Зажать Пробел — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК")
+		if voice.CanRecord() {
+			hint = i18n.S(" 🎙 Зажать Пробел — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК")
+		} else {
+			hint = i18n.S(" 🔊 Ответы озвучиваются · голосовой ввод в Termux недоступен · /voice tts — выбор голоса")
+		}
 		if m.voice.StatusNote != "" && time.Since(m.voice.StatusNoteAt) < 8*time.Second {
 			hint += " · " + m.voice.StatusNote
 		}
@@ -1007,7 +1011,11 @@ func (m *Model) voiceStatusSummary() string {
 		}
 	}
 	sb.WriteString(fmt.Sprintf(i18n.S("  панель внизу   %s (/voice on|off)\n"), panelState))
-	sb.WriteString(fmt.Sprintf(i18n.S("  ввод (STT)     %s (/voice stt — список BYOK / Мои ПК / Realtime)\n"), m.preferredSTTEngineLabel()))
+	if voice.CanRecord() {
+		sb.WriteString(fmt.Sprintf(i18n.S("  ввод (STT)     %s (/voice stt — список BYOK / Мои ПК / Realtime)\n"), m.preferredSTTEngineLabel()))
+	} else {
+		sb.WriteString(i18n.S("  ввод (STT)     недоступен в Termux: нет доступа к микрофону\n"))
+	}
 	sb.WriteString(fmt.Sprintf(i18n.S("  вывод (TTS)    %s · %s (/voice tts — список моделей, /voice voice — голос)\n"), ttsState, m.preferredTTSEngineLabel()))
 	sb.WriteString(fmt.Sprintf(i18n.S("  каталог сети   облако BYOK: %d STT / %d TTS · другие ПК: %d (/voice refresh)\n"), cloudSTT, cloudTTS, peerCount))
 	sb.WriteString(fmt.Sprintf(i18n.S("  автоотправка   %s (/voice auto)\n"), autoState))
