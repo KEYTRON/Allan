@@ -25,6 +25,7 @@ var SlashCommands = []SlashCommand{
 	{Name: "/plan", Help: "Текущий план агента (scratchpad)"},
 	{Name: "/skills", Help: "Список навыков (или show/delete/export)"},
 	{Name: "/usage", Help: "Расход: эта сессия, сегодня, месяц, год и балансы"},
+	{Name: "/mcp", Help: "MCP-серверы: состояние и инструменты (настройка: allan mcp)"},
 	{Name: "/compact", Help: "Сжать историю в сводку, чтобы экономить контекст и токены"},
 	{Name: "/clear", Help: "Очистить историю"},
 	{Name: "/config", Help: "Показать текущий конфиг"},

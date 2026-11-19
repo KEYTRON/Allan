@@ -18,6 +18,7 @@ import (
 	"github.com/keytron/allan/agent/config"
 	"github.com/keytron/allan/agent/internal/agent"
 	"github.com/keytron/allan/agent/internal/backend"
+	"github.com/keytron/allan/agent/internal/mcp"
 	"github.com/keytron/allan/agent/internal/memory"
 	"github.com/keytron/allan/agent/internal/skills"
 	"github.com/keytron/allan/agent/internal/tools"
@@ -118,6 +119,11 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	registry.Register(tools.NewSearchTool())
 	if cfg.Tools.SSH.Enabled && !opts.NoSSH {
 		registry.Register(tools.NewSSHTool(cfg.Tools.SSH.KnownHostsStrict, cfg.Tools.SSH.DefaultTimeout))
+	}
+	if len(cfg.MCP) > 0 {
+		// подключение общее на процесс и идёт в фоне: инструменты MCP-серверов
+		// появятся в реестре, как только их сервер ответит
+		mcp.Shared(cfg).Attach(registry)
 	}
 
 	var mem *memory.Memory

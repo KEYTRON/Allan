@@ -13,6 +13,7 @@ import (
 	"github.com/keytron/allan/agent/internal/bootstrap"
 	"github.com/keytron/allan/agent/internal/i18n"
 	"github.com/keytron/allan/agent/internal/link"
+	"github.com/keytron/allan/agent/internal/mcp"
 	"github.com/keytron/allan/agent/internal/tui"
 )
 
@@ -98,6 +99,8 @@ func main() {
 			os.Exit(runServe(args[1:]))
 		case "audio":
 			os.Exit(runAudio(args[1:]))
+		case "mcp":
+			os.Exit(runMCP(args[1:]))
 		case "connect":
 			os.Exit(runConnect(args[1:]))
 		case "id":
@@ -115,6 +118,7 @@ func main() {
 		resumeID = strings.TrimSpace(args[0])
 	}
 
+	mcp.Version = version
 	if *flVersion {
 		fmt.Printf("allan %s\n", version)
 		return
@@ -157,6 +161,7 @@ func main() {
 
 	// On exit:
 	rt.Close(ctx)
+	mcp.Shutdown() // завершить stdio MCP-серверы
 	printSummary(rt.Agent, startedAt)
 }
 
@@ -186,6 +191,7 @@ const usageText = `Allan %s — автономный агент в термин�
   allan connect [код]           связать эту машину с KEYTRON Prime (страница выдаёт код)
   allan serve                   HTTP-воркер для телефона и сайта (обычно в фоне)
   allan audio [setup]           голос этой машины для сайта: что умеет, поставить движки
+  allan mcp                     MCP-серверы для агента: list, add, rm, import claude
   allan id                      имя, уникальный id и адрес этой машины
   allan help                    эта справка
 
