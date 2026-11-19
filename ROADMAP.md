@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.4
+Stage: 0.4.11
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -27,7 +27,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] Automatic selection of an available local backend
 - [x] Provider keys right from the TUI (`/api`) and picking a model from a catalog in `/model`
 - [x] Grok (xAI) as a provider
-- [x] Cloud providers: OpenRouter, OpenCode Zen, Ollama Cloud (API key, separate from local Ollama), Hugging Face Inference Providers, Featherless.ai, Z.ai
+- [x] Cloud providers: OpenRouter, OpenCode Zen, Ollama Cloud (API key, separate from local Ollama), Hugging Face Inference Providers, Featherless.ai, Z.ai; since 0.4.11 also NVIDIA (build.nvidia.com), Mistral, Google Gemini, Perplexity, Liquid AI
 - [x] Keys in the system keyring (0600 file fallback), custom endpoints, `allan key` with hidden input
 - [x] GigaChat (Sber): OAuth with the authorization key, bundled Russian Trusted Root CA, function calling
 - [x] Model caption under replies, `/compact` to summarize history
@@ -47,6 +47,10 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] 0.4.2: `allan serve` goes to the background from a terminal (`status`, `logs`, `stop`, `--foreground`); the site lists the PC's own models (`/v1/llm` proxy) in its chat; `keytron` appears by itself after `allan connect`; the language follows the environment, English when it says nothing
 - [x] 0.4.3: speech on the PC for the site: `/v1/audio` finds whisper, Ollama ASR models and MLX TTS by itself (plus `[[audio]]` commands), transcribes and speaks in the OpenRouter JSON shape
 - [x] 0.4.4: `allan audio [setup]`: macOS `say` and on-device Apple dictation (helper app), faster-whisper and Piper installed without root
+- [x] 0.4.5–0.4.8: model list grouped by where it runs (site, PC, BYOK), `/usage` with balances, balance under the input, ←/→ through providers and computers in `/model`, translated status line, cloud providers without a key flagged
+- [x] 0.4.9: OpenRouter sign-in in the browser (`allan key login openrouter`)
+- [x] 0.4.10: tool-call limit 50 (old configs with 10 are raised), history survives hitting the limit, Allan-LM credited as commit co-author
+- [x] 0.4.11: NVIDIA, Mistral, Gemini, Perplexity and Liquid AI providers; embeddings, rerankers and safety classifiers are kept out of `/model`; golang.org/x/crypto 0.59.0
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases

@@ -18,6 +18,7 @@ var providerTitles = map[string]string{
 	"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter", "gemini": "Google Gemini",
 	"xai": "xAI Grok", "deepseek": "DeepSeek", "mistral": "Mistral", "groq": "Groq", "ollama": "Ollama Cloud",
 	"huggingface": "Hugging Face", "perplexity": "Perplexity", "elevenlabs": "ElevenLabs",
+	"nvidia": "NVIDIA", "liquid": "Liquid AI", "yandex": "Yandex AI Studio", "gigachat": "GigaChat", "f5ai": "F5AI",
 }
 
 func providerTitle(slug string) string {

@@ -78,7 +78,7 @@ allan key list
 allan key rm openrouter
 ```
 
-Провайдеры из коробки: `keytron` (KEYTRON Prime: модели сайта и ваши BYOK-ключи; после `allan connect` появляется сам — сайт принимает токен воркера как ключ, иначе ключ `kp-…` из профиля; расход и баланс видны на сайте), `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
+Провайдеры из коробки: `keytron` (KEYTRON Prime: модели сайта и ваши BYOK-ключи; после `allan connect` появляется сам — сайт принимает токен воркера как ключ, иначе ключ `kp-…` из профиля; расход и баланс видны на сайте), `openrouter`, `opencode` (OpenCode Zen), `gigachat` (Сбер: хранится «ключ авторизации», временный токен Allan получает и продлевает сам, сертификат Минцифры встроен и применяется только к GigaChat), `ollama-cloud`, `huggingface`/`hf`, `featherless`, `zai`, `zai-coding`, `nvidia` (build.nvidia.com, бесплатно с лимитом), `mistral`, `gemini`, `perplexity` (модель указывается вручную: `/model perplexity/sonar`), `liquid`, `xai`/`grok`, `deepseek`, `groq`, `anthropic`, `openai`; локальные без ключа — `ollama`, `llamacpp`, `lmstudio`.
 
 ### Slash-команды
 

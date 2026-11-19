@@ -280,9 +280,10 @@ func (o *OpenAILike) ModelInfos(ctx context.Context) ([]ModelInfo, error) {
 	for _, m := range mr.Data {
 		// catalogs like KEYTRON Prime also list image, speech and embedding models;
 		// the agent can only talk to chat ones (a missing kind means chat)
-		if m.ID == "" || m.Kind != "" && m.Kind != "chat" {
+		if m.ID == "" || m.Kind != "" && m.Kind != "chat" || notChatName(m.ID) {
 			continue
 		}
+		m.ID = strings.TrimPrefix(m.ID, "models/") // Gemini prefixes ids with models/
 		out = append(out, m)
 	}
 	return out, nil
@@ -305,4 +306,16 @@ func (o *OpenAILike) Health(ctx context.Context) error {
 		return fmt.Errorf("backend unhealthy: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// notChatName drops models a plain /models list mixes in without a kind (NVIDIA, Gemini, Mistral):
+// embeddings, rerankers, safety classifiers and detectors cannot hold a conversation.
+func notChatName(id string) bool {
+	id = strings.ToLower(id)
+	for _, w := range []string{"embed", "rerank", "nvclip", "safety", "nemoguard", "detector", "moderation", "tts", "transcribe", "whisper", "imagen", "veo-"} {
+		if strings.Contains(id, w) {
+			return true
+		}
+	}
+	return false
 }

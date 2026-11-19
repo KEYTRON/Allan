@@ -24,6 +24,11 @@ var ProviderPresets = map[string]ProviderPreset{
 	"ollama-cloud": {Type: "openai", BaseURL: "https://ollama.com/v1", Help: "Ollama Cloud по API-ключу"},
 	"huggingface":  {Type: "openai", BaseURL: "https://router.huggingface.co/v1", Help: "Hugging Face Inference Providers; ключ — токен hf_… с правом «Make calls to Inference Providers»"},
 	"featherless":  {Type: "openai", BaseURL: "https://api.featherless.ai/v1", Help: "Featherless.ai, ~20 тыс. моделей с HF"},
+	"nvidia":       {Type: "openai", BaseURL: "https://integrate.api.nvidia.com/v1", Help: "NVIDIA build.nvidia.com, бесплатно с лимитом ~40 запросов в минуту; ключ nvapi-…"},
+	"mistral":      {Type: "openai", BaseURL: "https://api.mistral.ai/v1", Help: "Mistral AI (La Plateforme)"},
+	"gemini":       {Type: "openai", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", Help: "Google Gemini через OpenAI-совместимый API; ключ из AI Studio"},
+	"perplexity":   {Type: "openai", BaseURL: "https://api.perplexity.ai", Help: "Perplexity Sonar: ответы с поиском в интернете; списка моделей в API нет — /model perplexity/sonar (или sonar-pro, sonar-reasoning-pro)"},
+	"liquid":       {Type: "openai", BaseURL: "https://api.liquid.ai/openai/v1", Help: "Liquid AI (модели LFM)"},
 	"keytron":      {Type: "openai", BaseURL: "https://keytron-prime.org/api/ai/v1", Help: "KEYTRON Prime: модели сайта и ваши BYOK-ключи одним ключом kp-… (профиль → AI), расход виден на сайте"},
 	"ollama":       {Type: "ollama", BaseURL: "http://localhost:11434/v1", Help: "локальный Ollama", Local: true},
 	"llamacpp":     {Type: "llamacpp", BaseURL: "http://localhost:8080/v1", Help: "локальный llama.cpp server", Local: true},
@@ -41,6 +46,10 @@ var providerAliases = map[string]string{
 	"sber":          "gigachat",
 	"keytron-prime": "keytron",
 	"kp":            "keytron",
+	"nim":           "nvidia",
+	"google":        "gemini",
+	"pplx":          "perplexity",
+	"lfm":           "liquid",
 }
 
 func NormalizeProvider(name string) string {
