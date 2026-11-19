@@ -512,6 +512,173 @@ add("API-ключ OpenRouter (пусто — войти через OpenRouter в
     "OpenRouter API key (empty — sign in to OpenRouter in the browser): ",
     "OpenRouter-API-Schlüssel (leer — im Browser bei OpenRouter anmelden): ")
 
+# --- голосовой модуль: каталог BYOK / Мои ПК / Realtime (/voice stt|tts|voice|realtime) ---
+add(" · живой режим включён (автоотправка + озвучка)",
+    " · live mode on (auto-send + speech)",
+    " · Live-Modus an (Autosenden + Sprachausgabe)")
+add("Голосовой вывод (TTS) включён · ",
+    "Voice output (TTS) on · ",
+    "Sprachausgabe (TTS) an · ")
+add(" 🎙 Зажать Пробел (пустой ввод) — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК",
+    " 🎙 Hold Space (empty input) to speak · Ctrl+G to record · /voice stt|tts|realtime to pick BYOK/PC",
+    " 🎙 Leertaste halten (leere Eingabe) zum Sprechen · Ctrl+G Aufnahme · /voice stt|tts|realtime BYOK/PC wählen")
+add("выбрать мультимодальную Realtime аудио-модель и живой режим",
+    "pick a multimodal Realtime audio model and live mode",
+    "multimodales Realtime-Audiomodell und Live-Modus wählen")
+add("не озвучивать ответы агента",
+    "do not speak agent replies",
+    "Antworten des Agenten nicht vorlesen")
+add("выбрать модель синтеза речи (BYOK, Мои ПК, Локально) или вкл/выкл",
+    "pick a speech synthesis model (BYOK, My PCs, Local) or turn on/off",
+    "Sprachsynthesemodell wählen (BYOK, Meine PCs, Lokal) oder ein/aus")
+add("Модель распознавания речи (STT — BYOK, Мои ПК, Realtime, Локально)",
+    "Speech recognition model (STT — BYOK, My PCs, Realtime, Local)",
+    "Spracherkennungsmodell (STT — BYOK, Meine PCs, Realtime, Lokal)")
+add("Использование: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]",
+    "Usage: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]",
+    "Verwendung: /voice [stt|tts|voice|realtime|refresh|auto|record|test|stop|on|off]")
+add("выбрать модель распознавания (BYOK, Мои ПК, Realtime, Локально)",
+    "pick a recognition model (BYOK, My PCs, Realtime, Local)",
+    "Erkennungsmodell wählen (BYOK, Meine PCs, Realtime, Lokal)")
+add("Модель синтеза речи (TTS — BYOK, Мои ПК, Локально)",
+    "Speech synthesis model (TTS — BYOK, My PCs, Local)",
+    "Sprachsynthesemodell (TTS — BYOK, Meine PCs, Lokal)")
+add("Realtime / Мультимодальные аудио-модели (прямой аудиоввод + живой режим)",
+    "Realtime / multimodal audio models (direct audio input + live mode)",
+    "Realtime / multimodale Audiomodelle (direkte Audioeingabe + Live-Modus)")
+add("выбрать голос текущей TTS-модели (alloy, Марфа, ElevenLabs…)",
+    "pick a voice of the current TTS model (alloy, Marfa, ElevenLabs…)",
+    "Stimme des aktuellen TTS-Modells wählen (alloy, Marfa, ElevenLabs…)")
+add("обновить каталог голосовых моделей с KEYTRON Prime и других ПК",
+    "refresh the voice model catalog from KEYTRON Prime and other PCs",
+    "Sprachmodellkatalog von KEYTRON Prime und anderen PCs aktualisieren")
+add("Выберите голос для ",
+    "Choose a voice for ",
+    "Stimme wählen für ")
+add("не нагружает VRAM, если есть BYOK или другой ПК",
+    "no VRAM load when BYOK or another PC is available",
+    "keine VRAM-Last, wenn BYOK oder ein anderer PC verfügbar ist")
+add("Режим",
+    "Mode",
+    "Modus")
+add("  управление     зажать Пробел (пустой ввод) — Push-to-Talk; нажать Пробел или Ctrl+G — запись с автостопом; /voice realtime — живые модели",
+    "  controls       hold Space (empty input) — Push-to-Talk; tap Space or Ctrl+G — record with auto-stop; /voice realtime — live models",
+    "  Steuerung      Leertaste halten (leere Eingabe) — Push-to-Talk; Leertaste tippen oder Ctrl+G — Aufnahme mit Autostopp; /voice realtime — Live-Modelle")
+add("Обновляю список голосовых моделей (BYOK, Мои ПК, Realtime)…",
+    "Refreshing the voice model list (BYOK, My PCs, Realtime)…",
+    "Aktualisiere die Sprachmodellliste (BYOK, Meine PCs, Realtime)…")
+add("У текущей модели озвучки нет отдельных голосов для выбора",
+    "The current speech model has no separate voices to choose from",
+    "Das aktuelle Sprachausgabemodell hat keine wählbaren Stimmen")
+add(" · %d голос(ов)",
+    " · %d voice(s)",
+    " · %d Stimme(n)")
+add("Модель озвучки (TTS): ",
+    "Speech model (TTS): ",
+    "Sprachausgabemodell (TTS): ")
+add("[Автовыбор: облако BYOK / Мои ПК → локально]",
+    "[Auto: cloud BYOK / My PCs → local]",
+    "[Automatisch: Cloud-BYOK / Meine PCs → lokal]")
+add("авто (облако/ПК)",
+    "auto (cloud/PC)",
+    "automatisch (Cloud/PC)")
+add("Модель озвучки (TTS): %s · голос %s",
+    "Speech model (TTS): %s · voice %s",
+    "Sprachausgabemodell (TTS): %s · Stimme %s")
+add("распознаю · ",
+    "transcribing · ",
+    "erkenne · ")
+add("[Выключить озвучку TTS]",
+    "[Turn off TTS speech]",
+    "[TTS-Sprachausgabe ausschalten]")
+
+add("  ввод (STT)     %s (/voice stt — список BYOK / Мои ПК / Realtime)\n",
+    "  input (STT)    %s (/voice stt — list of BYOK / My PCs / Realtime)\n",
+    "  Eingabe (STT)  %s (/voice stt — Liste BYOK / Meine PCs / Realtime)\n")
+add("  вывод (TTS)    %s · %s (/voice tts — список моделей, /voice voice — голос)\n",
+    "  output (TTS)   %s · %s (/voice tts — model list, /voice voice — voice)\n",
+    "  Ausgabe (TTS)  %s · %s (/voice tts — Modellliste, /voice voice — Stimme)\n")
+add("  каталог сети   облако BYOK: %d STT / %d TTS · другие ПК: %d (/voice refresh)\n",
+    "  network        cloud BYOK: %d STT / %d TTS · other PCs: %d (/voice refresh)\n",
+    "  Netzwerk       Cloud-BYOK: %d STT / %d TTS · andere PCs: %d (/voice refresh)\n")
+
+# --- голосовой модуль и визуализатор (/voice, Push-to-Talk по Пробелу) ---
+add("Голосовой ввод/вывод и визуализатор: /voice [on|off|tts|auto|stt|record|test|stop]",
+    "Voice input/output and visualizer: /voice [on|off|tts|auto|stt|record|test|stop]",
+    "Sprachein-/ausgabe und Visualizer: /voice [on|off|tts|auto|stt|record|test|stop]")
+add("Пробел", "Space", "Leertaste")
+add("зажать на пустом вводе — голосовой ввод (Push-to-Talk); нажать — запись с автостопом",
+    "hold on empty input — voice input (Push-to-Talk); tap — record with auto-stop",
+    "bei leerem Eingabefeld halten — Spracheingabe (Push-to-Talk); tippen — Aufnahme mit Autostopp")
+add("голосовой ввод в любой момент (дописать голосом к тексту)",
+    "voice input anytime (append speech to current text)",
+    "Spracheingabe jederzeit (Sprache an den Text anhängen)")
+add("голос и визуализатор (зажать Пробел — говорить)",
+    "voice and visualizer (hold Space to speak)",
+    "Sprache und Visualizer (Leertaste halten zum Sprechen)")
+add("озвучка остановлена", "speech stopped", "Sprachausgabe gestoppt")
+add("Микрофон недоступен: ", "Microphone unavailable: ", "Mikrofon nicht verfügbar: ")
+add("запись отменена", "recording canceled", "Aufnahme abgebrochen")
+add("речь не услышана", "no speech detected", "keine Sprache erkannt")
+add("тест визуализатора и аудиоканала", "visualizer and audio channel test", "Visualizer- und Audiokanal-Test")
+add("ошибка STT", "STT error", "STT-Fehler")
+add("Распознавание речи: ", "Speech recognition: ", "Spracherkennung: ")
+add("слов не разобрано", "no words recognized", "keine Wörter erkannt")
+add("распознано · ", "recognized · ", "erkannt · ")
+add(" 🎙 Удерживайте Пробел и говорите (отпустите — распознать · Esc — отмена)",
+    " 🎙 Hold Space and speak (release to transcribe · Esc to cancel)",
+    " 🎙 Leertaste halten und sprechen (loslassen zum Erkennen · Esc zum Abbrechen)")
+add(" 🎙 Слушаю… говорите (автостоп по паузе · Пробел/Enter — готово · Esc — отмена)",
+    " 🎙 Listening… speak now (auto-stop on pause · Space/Enter when done · Esc to cancel)",
+    " 🎙 Höre zu… sprechen Sie (Autostopp bei Pause · Leertaste/Enter fertig · Esc Abbruch)")
+add(" ◌ Перевожу голос в текст…", " ◌ Transcribing voice to text…", " ◌ Wandle Sprache in Text um…")
+add(" 🔊 Озвучиваю ответ агента (Esc или /voice stop — остановить)",
+    " 🔊 Speaking agent reply (Esc or /voice stop to stop)",
+    " 🔊 Spreche Agentenantwort (Esc oder /voice stop zum Stoppen)")
+add("Голосовой модуль и визуализатор включены",
+    "Voice module and visualizer enabled",
+    "Sprachmodul und Visualizer aktiviert")
+add("Голосовой модуль скрыт (/voice on — вернуть)",
+    "Voice module hidden (/voice on to restore)",
+    "Sprachmodul ausgeblendet (/voice on zum Einblenden)")
+add("Голосовой вывод (TTS) выключен", "Voice output (TTS) disabled", "Sprachausgabe (TTS) deaktiviert")
+add("Автоотправка распознанной речи включена",
+    "Auto-send for transcribed speech enabled",
+    "Automatisches Senden erkannter Sprache aktiviert")
+add("Автоотправка выключена: распознанный текст помещается в поле ввода",
+    "Auto-send disabled: transcribed text is placed in the input box",
+    "Automatisches Senden deaktiviert: erkannter Text landet im Eingabefeld")
+add("Движок распознавания (STT): ", "Speech recognition engine (STT): ", "Spracherkennungs-Engine (STT): ")
+add("остановлено", "stopped", "gestoppt")
+add("Голосовой модуль связи Allan\n", "Allan Voice Communication Module\n", "Allan-Sprachkommunikationsmodul\n")
+add("включён", "enabled", "aktiviert")
+add("выключен", "disabled", "deaktiviert")
+add("выключена (текст в поле ввода)", "disabled (text placed in input)", "deaktiviert (Text im Eingabefeld)")
+add("включена (сразу отправляет агенту)", "enabled (sends immediately to agent)", "aktiviert (sendet sofort an den Agenten)")
+add("  панель внизу   %s (/voice on|off)\n", "  bottom dock    %s (/voice on|off)\n", "  Leiste unten   %s (/voice on|off)\n")
+add("  автоотправка   %s (/voice auto)\n", "  auto-send      %s (/voice auto)\n", "  Auto-Senden    %s (/voice auto)\n")
+add("демо-сигнал для проверки спектра и эквалайзера",
+    "demo signal to test the spectrum and equalizer",
+    "Demosignal zum Testen von Spektrum und Equalizer")
+add("начать или остановить запись голоса с микрофона",
+    "start or stop voice recording from the microphone",
+    "Sprachaufnahme vom Mikrofon starten oder stoppen")
+add("переключить автоотправку после распознавания",
+    "toggle auto-send after speech recognition",
+    "automatisches Senden nach Spracherkennung umschalten")
+add("остановить текущую запись или озвучку",
+    "stop current recording or speech playback",
+    "aktuelle Aufnahme oder Sprachausgabe stoppen")
+add("показать панель связи и визуализатор под полем ввода",
+    "show the comms dock and visualizer under the input box",
+    "Kommunikationsleiste und Visualizer unter dem Eingabefeld anzeigen")
+add("скрыть панель связи под полем ввода",
+    "hide the comms dock under the input box",
+    "Kommunikationsleiste unter dem Eingabefeld ausblenden")
+add("показать состояние голосового модуля",
+    "show voice module status",
+    "Status des Sprachmoduls anzeigen")
+
 
 def go_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
