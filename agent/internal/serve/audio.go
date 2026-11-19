@@ -85,6 +85,11 @@ func audioEngines(cfg *config.Config) []audioEngine {
 				"--output_format", "txt", "--verbose", "False"}})
 		}
 	}
+	// faster-whisper service script (e.g. ~/.local/share/claude-voice/stt_whisper.py with local faster_whisper venv)
+	if py, script, modelDir := localFasterWhisper(); py != "" {
+		add(audioEngine{Name: "faster-whisper-local", Kind: "stt", Engine: "command", wav: true, command: []string{
+			py, script, "once", "{input}", modelDir, "{lang}"}})
+	}
 	if bin, err := exec.LookPath("whisper"); err == nil {
 		sizes := []string{"small"}
 		// models already downloaded run without a first-time download
@@ -138,6 +143,23 @@ func audioEngines(cfg *config.Config) []audioEngine {
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
 	audioCache, audioCached = out, time.Now()
 	return out
+}
+
+// localFasterWhisper detects the local GPU faster-whisper script + model if present on disk.
+func localFasterWhisper() (pythonBin, scriptPath, modelDir string) {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return "", "", ""
+	}
+	script := filepath.Join(home, ".local", "share", "claude-voice", "stt_whisper.py")
+	py := filepath.Join(home, "git", "Open-LLM-VTuber", ".venv", "bin", "python")
+	snaps, _ := filepath.Glob(filepath.Join(home, "git", "Open-LLM-VTuber", "models", "whisper", "models--Systran--faster-whisper-*", "snapshots", "*"))
+	if _, err := os.Stat(script); err == nil {
+		if _, err := os.Stat(py); err == nil && len(snaps) > 0 {
+			return py, script, snaps[0]
+		}
+	}
+	return "", "", ""
 }
 
 // AppleDictationApp is the speech helper built by `allan audio setup` on macOS, or "".
@@ -614,4 +636,151 @@ func ListAudio(cfg *config.Config) []AudioInfo {
 		out = append(out, AudioInfo{Name: e.Name, Kind: e.Kind, Voices: e.Voices})
 	}
 	return out
+}
+
+// TranscribeAudio runs an STT engine in-process on WAV audio bytes. When model
+// is empty, the first available STT engine is used. Returns (transcript, engineName, err).
+func TranscribeAudio(ctx context.Context, cfg *config.Config, model, lang string, wavBytes []byte) (string, string, error) {
+	engines := audioEngines(cfg)
+	var e *audioEngine
+	if model != "" {
+		e = pick(engines, "stt", model)
+	}
+	if e == nil {
+		for i := range engines {
+			if engines[i].Kind == "stt" {
+				e = &engines[i]
+				break
+			}
+		}
+	}
+	if e == nil {
+		return "", "", fmt.Errorf("нет доступного движка распознавания речи (allan audio setup)")
+	}
+	dir, err := os.MkdirTemp("", "allan-stt-")
+	if err != nil {
+		return "", e.Name, err
+	}
+	defer os.RemoveAll(dir)
+	input := filepath.Join(dir, "input.wav")
+	if err := os.WriteFile(input, wavBytes, 0o600); err != nil {
+		return "", e.Name, err
+	}
+	release, err := busy(ctx)
+	if err != nil {
+		return "", e.Name, err
+	}
+	defer release()
+	var text string
+	switch e.Engine {
+	case "ollama-asr":
+		text, err = ollamaASR(ctx, e.model, input, dir, lang)
+	case "apple-dictation":
+		text, err = appleDictation(ctx, e.model, input, dir, lang)
+	default:
+		text, err = runCommand(ctx, e.command, map[string]string{
+			"input":     input,
+			"outdir":    dir,
+			"lang":      lang,
+			"lang_name": langName(lang, ""),
+		}, dir, ".txt")
+	}
+	if err != nil {
+		return "", e.Name, err
+	}
+	return strings.TrimSpace(text), e.Name, nil
+}
+
+// SynthesizeAudio runs a TTS engine in-process and returns WAV bytes (16 kHz mono s16le when ffmpeg is available).
+// When model is empty, the first available TTS engine is used.
+func SynthesizeAudio(ctx context.Context, cfg *config.Config, model, voice, lang, text string) ([]byte, string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, "", fmt.Errorf("пустой текст для озвучки")
+	}
+	engines := audioEngines(cfg)
+	var e *audioEngine
+	if model != "" {
+		e = pick(engines, "tts", model)
+	}
+	if e == nil {
+		for i := range engines {
+			if engines[i].Kind == "tts" {
+				e = &engines[i]
+				break
+			}
+		}
+	}
+	if e == nil {
+		return nil, "", fmt.Errorf("нет доступного движка синтеза речи (allan audio setup)")
+	}
+	if voice == "" {
+		voice = pickVoiceForText(e.Voices, lang, text)
+	}
+	dir, err := os.MkdirTemp("", "allan-tts-")
+	if err != nil {
+		return nil, e.Name, err
+	}
+	defer os.RemoveAll(dir)
+	release, err := busy(ctx)
+	if err != nil {
+		return nil, e.Name, err
+	}
+	defer release()
+	textfile := filepath.Join(dir, "text.txt")
+	if err := os.WriteFile(textfile, []byte(text), 0o600); err != nil {
+		return nil, e.Name, err
+	}
+	vals := map[string]string{
+		"text":      text,
+		"textfile":  textfile,
+		"voice":     voice,
+		"outdir":    dir,
+		"lang":      lang,
+		"lang_name": langName(lang, text),
+	}
+	if e.voiceDir != "" {
+		vals["voice_path"] = filepath.Join(e.voiceDir, filepath.Base(voice)+".onnx")
+	}
+	stdin := ""
+	if e.stdin {
+		stdin = text
+	}
+	if _, err := runCommandIn(ctx, e.command, vals, dir, "", stdin); err != nil {
+		return nil, e.Name, err
+	}
+	file := newestAudio(dir)
+	if file == "" {
+		return nil, e.Name, fmt.Errorf("движок синтеза не записал аудио")
+	}
+	// Normalize to 16 kHz mono s16le WAV so the TUI visualizer can read PCM frames directly
+	if wav, err := ffmpeg(ctx, file, filepath.Join(dir, "norm16k.wav"), "-ac", "1", "-ar", "16000", "-sample_fmt", "s16"); err == nil {
+		file = wav
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, e.Name, err
+	}
+	return data, e.Name, nil
+}
+
+func pickVoiceForText(voices []string, lang, text string) string {
+	if len(voices) == 0 {
+		return ""
+	}
+	want := strings.ToLower(lang)
+	if want == "" {
+		if langName("", text) == "russian" {
+			want = "ru"
+		} else {
+			want = "en"
+		}
+	}
+	for _, v := range voices {
+		lv := strings.ToLower(v)
+		if lv == want || strings.HasPrefix(lv, want+"_") || strings.HasPrefix(lv, want+"-") {
+			return v
+		}
+	}
+	return voices[0]
 }

@@ -85,6 +85,7 @@ type Model struct {
 	thinkingSince time.Time
 	spinner       spinner.Model
 	startedAt     time.Time
+	voice         *VoiceHub
 }
 
 type modelChoice struct {
@@ -132,6 +133,7 @@ func New(cfg *config.Config, ag *agent.Agent, workspace, version string) *Model 
 		viewport:  vp,
 		spinner:   sp,
 		startedAt: time.Now(),
+		voice:     newVoiceHub(),
 	}
 	m.welcome()
 	return m
@@ -142,7 +144,7 @@ func (m *Model) welcome() {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.refreshBalance(true))
+	return tea.Batch(textarea.Blink, m.refreshBalance(true), m.refreshVoiceCatalog(false, ""))
 }
 
 type agentEventMsg struct{ ev agent.Event }
@@ -151,6 +153,11 @@ type tickMsg time.Time
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	if cmd, handled := m.handleVoiceMsg(msg); handled {
+		m.recalcLayout()
+		return m, cmd
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -180,7 +187,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	case agentEventMsg:
-		m.handleAgentEvent(msg.ev)
+		if cmd := m.handleAgentEvent(msg.ev); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case statusBalanceMsg:
 		m.statusBalance = msg.text
 	case usageMsg:
@@ -235,6 +244,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // key on to the input box.
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	if msg.Type == tea.KeyCtrlC {
+		if m.voice != nil && m.voice.State == VoiceRecording {
+			return m.stopVoiceRecording(true), true
+		}
+		m.stopVoiceSpeaking()
 		switch {
 		case m.picker != nil:
 			m.closePicker()
@@ -248,6 +261,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Нажмите Ctrl+C ещё раз, чтобы выйти")})
 		}
 		return nil, true
+	}
+	if cmd, consumed := m.handleVoiceKey(msg); consumed {
+		return cmd, true
 	}
 	if msg.Type == tea.KeyEsc && m.thinking && m.cancelRun != nil {
 		m.cancelRun()
@@ -399,6 +415,9 @@ func (m *Model) completionsFor(input string) []SlashCommand {
 	if strings.HasPrefix(input, "/model ") {
 		return m.modelCompletions(input)
 	}
+	if strings.HasPrefix(input, "/voice ") {
+		return m.voiceCompletions(input)
+	}
 	return nil
 }
 
@@ -537,7 +556,8 @@ func (m *Model) drainEvents(events <-chan agent.Event) {
 	}
 }
 
-func (m *Model) handleAgentEvent(ev agent.Event) {
+func (m *Model) handleAgentEvent(ev agent.Event) tea.Cmd {
+	var cmd tea.Cmd
 	switch ev.Kind {
 	case "tool_call":
 		args, _ := json.Marshal(ev.Args)
@@ -565,6 +585,7 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 	case "final":
 		if ev.Text != "" {
 			m.appendMsg(Message{Kind: MsgAllan, Text: ev.Text, Meta: m.turnMeta()})
+			cmd = m.startVoiceTTS(ev.Text)
 		}
 	case "warn":
 		if strings.Contains(ev.Text, "context canceled") {
@@ -581,6 +602,7 @@ func (m *Model) handleAgentEvent(ev agent.Event) {
 		}
 	}
 	m.recalcLayout()
+	return cmd
 }
 
 func (m *Model) handleSlash(input string) tea.Cmd {
@@ -593,6 +615,8 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 	switch cmd {
 	case "/help":
 		m.appendMsg(Message{Kind: MsgSys, Text: helpText()})
+	case "/voice":
+		return m.handleVoiceSlash(args)
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/compact":
@@ -1235,6 +1259,10 @@ func (m *Model) recalcLayout() {
 
 	headerH := lipgloss.Height(m.renderHeader())
 	inputH := lipgloss.Height(m.renderInput())
+	voiceH := 0
+	if dock := m.renderVoiceDock(); dock != "" {
+		voiceH = lipgloss.Height(dock)
+	}
 	statusH := 1
 	popupH := 0
 	switch {
@@ -1244,7 +1272,7 @@ func (m *Model) recalcLayout() {
 		popupH = lipgloss.Height(m.renderPopup())
 	}
 	m.viewport.Width = m.width
-	m.viewport.Height = maxInt(3, m.height-headerH-inputH-statusH-popupH)
+	m.viewport.Height = maxInt(3, m.height-headerH-inputH-voiceH-statusH-popupH)
 	m.refreshContent()
 }
 
@@ -1297,7 +1325,11 @@ func (m *Model) View() string {
 	case m.popupOpen:
 		parts = append(parts, m.renderPopup())
 	}
-	parts = append(parts, m.renderInput(), m.renderStatus())
+	parts = append(parts, m.renderInput())
+	if dock := m.renderVoiceDock(); dock != "" {
+		parts = append(parts, dock)
+	}
+	parts = append(parts, m.renderStatus())
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
@@ -1333,6 +1365,7 @@ func (m *Model) renderWelcome(width int) string {
 		row("ключи API", keys),
 		"",
 		tip("/model", "выбрать модель: ↑↓, поиск, Enter"),
+		tip("/voice", "голос и визуализатор (зажать Пробел — говорить)"),
 		tip("/api", "ключи провайдеров и свои эндпоинты"),
 		tip("/help", "все команды"),
 		tip("Tab", "дополнить команду"),
@@ -1359,7 +1392,14 @@ func (m *Model) providersWithKeys() int {
 
 func (m *Model) renderInput() string {
 	style := StyleInput
-	if m.thinking {
+	switch {
+	case m.voice != nil && m.voice.State == VoiceRecording:
+		style = StyleInput.BorderForeground(ColorRed)
+	case m.voice != nil && m.voice.State == VoiceTranscribing:
+		style = StyleInput.BorderForeground(ColorYellow)
+	case m.voice != nil && m.voice.State == VoiceSpeaking:
+		style = StyleInput.BorderForeground(ColorGreen)
+	case m.thinking:
 		style = StyleInputBusy
 	}
 	prompt := StyleBrand.Render("› ")

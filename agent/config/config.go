@@ -95,7 +95,16 @@ type TUIConfig struct {
 	Theme          string `toml:"theme"`
 	ShowTimestamps bool   `toml:"show_timestamps"`
 	// Lang is the interface language: ru, en or de; empty follows the environment.
-	Lang string `toml:"lang"`
+	Lang          string `toml:"lang"`
+	VoiceEnabled  bool   `toml:"voice_enabled"`
+	VoiceAutoSend bool   `toml:"voice_auto_send"`
+	VoiceTTS      bool   `toml:"voice_tts"`
+	VoiceSTTModel string `toml:"voice_stt_model,omitempty"`
+	VoiceTTSModel string `toml:"voice_tts_model,omitempty"`
+	VoiceTTSVoice string `toml:"voice_tts_voice,omitempty"`
+	// VoiceLang — язык речи для распознавания и озвучки (ru, en, de, …; "auto" —
+	// модель определяет сама). Пусто — по локали системы, не по языку интерфейса.
+	VoiceLang string `toml:"voice_lang,omitempty"`
 }
 
 type MemoryConfig struct {
@@ -159,6 +168,9 @@ func Default() *Config {
 			Theme:          "dark",
 			ShowTimestamps: false,
 			Lang:           "", // пусто — язык из окружения (LANG), иначе английский
+			VoiceEnabled:   true,
+			VoiceAutoSend:  false,
+			VoiceTTS:       true,
 		},
 		Memory: MemoryConfig{
 			Enabled:                  true,

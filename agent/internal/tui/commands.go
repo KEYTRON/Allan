@@ -16,6 +16,7 @@ type SlashCommand struct {
 var SlashCommands = []SlashCommand{
 	{Name: "/help", Help: "Список команд"},
 	{Name: "/model", Help: "Выбрать модель из списка (↑↓, поиск, Enter) или /model <provider/model>"},
+	{Name: "/voice", Help: "Голосовой ввод/вывод и визуализатор: /voice [on|off|tts|auto|stt|record|test|stop]"},
 	{Name: "/api", Help: "API-ключи и эндпоинты: /api add|key|endpoint|list|use|remove|refresh"},
 	{Name: "/backend", Help: "Выбрать провайдера, затем его модель"},
 	{Name: "/resume", Help: "Продолжить сессию: /resume <id> (без аргументов — список последних)"},
@@ -57,6 +58,8 @@ func helpText() string {
 	sb.WriteString(i18n.S("\nКлавиши\n"))
 	for _, k := range [][2]string{
 		{"Enter", "отправить; в подсказке — выполнить выбранную команду"},
+		{"Пробел", "зажать — голосовой ввод (Push-to-Talk, в непустом поле допишет); на пустом вводе нажать — запись с автостопом"},
+		{"Ctrl+G", "голосовой ввод в любой момент (дописать голосом к тексту)"},
 		{"Tab", "дополнить команду; при запущенном shell — переключить фокус"},
 		{"↑ ↓", "выбор в подсказке или списке, иначе история ввода"},
 		{"Esc", "закрыть подсказку или список; пока агент работает — остановить его"},
