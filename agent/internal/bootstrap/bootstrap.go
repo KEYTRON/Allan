@@ -111,6 +111,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	be = withEnvFallback(cfg, be)
 
 	registry := tools.NewRegistry()
+	registry.AutoTokens = cfg.Tools.MCPAutoTokens
 	if !opts.NoShell {
 		registry.Register(tools.NewBashTool(cfg.Tools.Shell.Default, workspace))
 	}

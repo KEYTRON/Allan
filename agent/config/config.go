@@ -44,6 +44,11 @@ type MCPServer struct {
 	// у некоторых серверов их десятки, и каждый съедает контекст модели.
 	Tools    []string `toml:"tools,omitempty"`
 	Disabled bool     `toml:"disabled,omitempty"`
+	// Load — когда схемы инструментов сервера уходят модели:
+	// "auto" (по умолчанию) — сразу, пока все такие серверы вместе легче
+	// tools.mcp_auto_tokens, иначе по требованию через load_tools;
+	// "always" — в каждом запросе; "deferred" — только по требованию.
+	Load string `toml:"load,omitempty"`
 	// Timeout вызова инструмента в секундах (по умолчанию 120).
 	Timeout int `toml:"timeout,omitempty"`
 }
@@ -104,6 +109,10 @@ type MemoryConfig struct {
 type ToolsConfig struct {
 	Shell ShellToolConfig `toml:"shell"`
 	SSH   SSHToolConfig   `toml:"ssh"`
+	// MCPAutoTokens — порог для MCP-серверов с load = "auto": если их схемы
+	// вместе тяжелее (оценка в токенах), модель видит только каталог и
+	// подгружает нужное сама. 0 — 4000, -1 — всегда показывать всё.
+	MCPAutoTokens int `toml:"mcp_auto_tokens,omitempty"`
 }
 
 type ShellToolConfig struct {

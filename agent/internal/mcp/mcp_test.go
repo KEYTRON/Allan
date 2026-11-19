@@ -47,7 +47,11 @@ type sink struct {
 	r  *tools.Registry
 }
 
-func (s *sink) Register(t tools.Tool) { s.mu.Lock(); s.r.Register(t); s.mu.Unlock() }
+func (s *sink) RegisterWith(t tools.Tool, p tools.LoadPolicy) {
+	s.mu.Lock()
+	s.r.RegisterWith(t, p)
+	s.mu.Unlock()
+}
 
 func TestStdioServerToolsReachAgent(t *testing.T) {
 	cfg := &config.Config{MCP: map[string]config.MCPServer{

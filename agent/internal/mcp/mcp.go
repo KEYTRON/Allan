@@ -56,11 +56,25 @@ type ServerStatus struct {
 	State     State
 	Error     string
 	Tools     []string // имена инструментов на сервере
+	Load      string   // auto | always | deferred
+	Tokens    int      // оценка: сколько стоят схемы всех его инструментов
 }
 
 // Registrar — то, куда менеджер кладёт инструменты (tools.Registry).
 type Registrar interface {
-	Register(t tools.Tool)
+	RegisterWith(t tools.Tool, p tools.LoadPolicy)
+}
+
+// Policy переводит load из конфига в политику реестра.
+func Policy(load string) tools.LoadPolicy {
+	switch strings.ToLower(strings.TrimSpace(load)) {
+	case "always":
+		return tools.LoadAlways
+	case "deferred", "lazy", "on-demand":
+		return tools.LoadDeferred
+	default:
+		return tools.LoadAuto
+	}
 }
 
 type server struct {
@@ -155,14 +169,14 @@ func newManager(cfg *config.Config) *Manager {
 // инструменты со следующего запроса к модели.
 func (m *Manager) Attach(r Registrar) {
 	m.mu.Lock()
-	m.sinks = append(m.sinks, func(t *Tool) { r.Register(t) })
+	m.sinks = append(m.sinks, func(t *Tool) { r.RegisterWith(t, t.policy) })
 	var ready []*Tool
 	for _, s := range m.servers {
 		ready = append(ready, s.tools...)
 	}
 	m.mu.Unlock()
 	for _, t := range ready {
-		r.Register(t)
+		r.RegisterWith(t, t.policy)
 	}
 }
 
@@ -180,9 +194,10 @@ func (m *Manager) Status() []ServerStatus {
 	defer m.mu.Unlock()
 	out := make([]ServerStatus, 0, len(m.servers))
 	for _, s := range m.servers {
-		st := ServerStatus{Name: s.name, Transport: transportOf(s.cfg), State: s.state, Error: s.err}
+		st := ServerStatus{Name: s.name, Transport: transportOf(s.cfg), State: s.state, Error: s.err, Load: loadName(s.cfg.Load)}
 		for _, t := range s.tools {
 			st.Tools = append(st.Tools, t.remote)
+			st.Tokens += tools.EstimateTokens(t)
 		}
 		out = append(out, st)
 	}
@@ -207,6 +222,16 @@ func (m *Manager) Close() {
 		go func(cs *sdk.ClientSession) { defer wg.Done(); _ = cs.Close() }(cs)
 	}
 	wg.Wait()
+}
+
+func loadName(load string) string {
+	switch Policy(load) {
+	case tools.LoadAlways:
+		return "always"
+	case tools.LoadDeferred:
+		return "deferred"
+	}
+	return "auto"
 }
 
 func transportOf(c config.MCPServer) string {
@@ -264,12 +289,20 @@ func (m *Manager) connect(s *server) {
 	if s.cfg.Timeout > 0 {
 		callTO = time.Duration(s.cfg.Timeout) * time.Second
 	}
-	var tools []*Tool
+	note := ""
+	if ir := cs.InitializeResult(); ir != nil {
+		note = oneLine(ir.Instructions)
+		if note == "" && ir.ServerInfo != nil {
+			note = oneLine(ir.ServerInfo.Description)
+		}
+	}
+	policy := Policy(s.cfg.Load)
+	var made []*Tool
 	for _, st := range list {
 		if len(allow) > 0 && !allow[st.Name] {
 			continue
 		}
-		tools = append(tools, &Tool{
+		made = append(made, &Tool{
 			name:    ToolName(s.name, st.Name),
 			remote:  st.Name,
 			server:  s.name,
@@ -277,16 +310,18 @@ func (m *Manager) connect(s *server) {
 			schema:  schemaOf(st.InputSchema),
 			session: cs,
 			timeout: callTO,
+			note:    note,
+			policy:  policy,
 		})
 	}
 	m.mu.Lock()
 	s.session = cs
 	s.state = StateReady
 	s.err = ""
-	s.tools = tools
+	s.tools = made
 	sinks := append([]func(*Tool){}, m.sinks...)
 	m.mu.Unlock()
-	for _, t := range tools {
+	for _, t := range made {
 		for _, sink := range sinks {
 			sink(t)
 		}
@@ -379,6 +414,23 @@ type Tool struct {
 	schema                     map[string]any
 	session                    *sdk.ClientSession
 	timeout                    time.Duration
+	note                       string
+	policy                     tools.LoadPolicy
+}
+
+func (t *Tool) Group() string     { return t.server }
+func (t *Tool) GroupNote() string { return t.note }
+
+// oneLine — первое предложение, не длиннее 100 символов: для каталога.
+func oneLine(s string) string {
+	s = strings.TrimSpace(strings.SplitN(strings.TrimSpace(s), "\n", 2)[0])
+	if i := strings.Index(s, ". "); i > 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); len(r) > 100 {
+		s = string(r[:100]) + "…"
+	}
+	return s
 }
 
 func (t *Tool) Name() string { return t.name }

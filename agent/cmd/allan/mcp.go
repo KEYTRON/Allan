@@ -22,14 +22,20 @@ const mcpUsage = `allan mcp — внешние MCP-серверы: их инст
   allan mcp add <имя> <url> [--sse]      HTTP-сервер (streamable HTTP или старый SSE)
   allan mcp rm <имя>                     удалить сервер
   allan mcp enable|disable <имя>         включить или выключить, не удаляя
+  allan mcp load <имя> auto|always|deferred
+                                         когда модель видит его инструменты
   allan mcp import claude [--enable]     забрать серверы из ~/.claude.json
                                          (по умолчанию выключенными)
 
 Серверы хранятся в ~/.allan/config.toml, секция [mcp.<имя>]: command, args,
 env, url, transport, headers, tools (список разрешённых), disabled, timeout.
 В env и headers можно ссылаться на переменные окружения: ${NAME}.
-Инструменты видны агенту как mcp__<сервер>__<инструмент>; каждый занимает
-место в контексте модели, поэтому включайте только нужные серверы.
+Инструменты видны агенту как mcp__<сервер>__<инструмент>. Схемы занимают
+контекст в каждом запросе, поэтому по умолчанию (load = auto) они показываются
+сразу, только пока все такие серверы вместе легче 4000 токенов
+([tools] mcp_auto_tokens). Иначе модель видит лишь каталог и сама подгружает
+нужное инструментом load_tools. always — всегда сразу, deferred — только по
+требованию.
 `
 
 func runMCP(args []string) int {
@@ -105,6 +111,27 @@ func runMCP(args []string) int {
 			cfg.MCP[name] = sc
 		}
 		return save()
+	case "load":
+		if len(args) < 3 {
+			fmt.Fprint(os.Stderr, i18n.S(mcpUsage))
+			return 2
+		}
+		sc, ok := cfg.MCP[args[1]]
+		if !ok {
+			fmt.Fprintf(os.Stderr, i18n.S("нет MCP-сервера %s\n"), args[1])
+			return 1
+		}
+		switch args[2] {
+		case "auto":
+			sc.Load = ""
+		case "always", "deferred":
+			sc.Load = args[2]
+		default:
+			fmt.Fprint(os.Stderr, i18n.S(mcpUsage))
+			return 2
+		}
+		cfg.MCP[args[1]] = sc
+		return save()
 	case "import":
 		if len(args) < 2 || args[1] != "claude" {
 			fmt.Fprint(os.Stderr, i18n.S(mcpUsage))
@@ -141,9 +168,9 @@ func mcpList(cfg *config.Config) int {
 	cancel()
 	defer mcp.Shutdown()
 	for _, st := range m.Status() {
-		line := fmt.Sprintf("%-22s %-5s %s", st.Name, st.Transport, i18n.S(string(st.State)))
+		line := fmt.Sprintf("%-22s %-5s %-8s %s", st.Name, st.Transport, st.Load, i18n.S(string(st.State)))
 		if st.State == mcp.StateReady {
-			line += fmt.Sprintf(i18n.S(" · инструментов: %d"), len(st.Tools))
+			line += fmt.Sprintf(i18n.S(" · инструментов: %d, ~%d токенов"), len(st.Tools), st.Tokens)
 		}
 		if st.Error != "" {
 			line += " · " + st.Error

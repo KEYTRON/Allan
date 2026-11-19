@@ -239,7 +239,6 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 	if toolTimeout <= 0 {
 		toolTimeout = 30 * time.Second
 	}
-	defs := a.Tools.ToolDefs()
 
 	usedTools := []string{}
 
@@ -256,6 +255,8 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 		}
 		msgs = append(msgs, closeToolCalls(hist)...)
 
+		// набор пересобирается на каждом шаге: load_tools открывает новые инструменты
+		defs := a.Tools.ToolDefs()
 		resp, err := a.Backend.Chat(ctx, msgs, defs)
 		if err != nil {
 			events <- Event{Kind: "warn", Text: fmt.Sprintf("backend error: %v", err)}
@@ -350,6 +351,9 @@ func (a *Agent) systemWithSkills(ctx context.Context, userInput string) string {
 			}
 			system += sb.String()
 		}
+	}
+	if a.Tools != nil && len(a.Tools.Deferred()) > 0 {
+		system += "\n\nЕсть ещё инструменты MCP-серверов, их схемы не показаны ради экономии контекста: каталог в описании load_tools. Нужен такой — сначала load_tools, потом вызывай его."
 	}
 	if a.Cfg.Agent.ScratchpadEnabled {
 		sp := a.Scratch.Render()
@@ -469,6 +473,9 @@ func extractJSON(s string) string {
 
 func (a *Agent) ClearHistory() {
 	a.History = nil
+	if a.Tools != nil {
+		a.Tools.ResetLoaded()
+	}
 	a.Scratch = &Scratchpad{}
 	a.lastInput = ""
 	a.lastUserIdx = -1
