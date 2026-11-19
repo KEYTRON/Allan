@@ -519,9 +519,9 @@ add(" · живой режим включён (автоотправка + озв
 add("Голосовой вывод (TTS) включён · ",
     "Voice output (TTS) on · ",
     "Sprachausgabe (TTS) an · ")
-add(" 🎙 Зажать Пробел (пустой ввод) — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК",
-    " 🎙 Hold Space (empty input) to speak · Ctrl+G to record · /voice stt|tts|realtime to pick BYOK/PC",
-    " 🎙 Leertaste halten (leere Eingabe) zum Sprechen · Ctrl+G Aufnahme · /voice stt|tts|realtime BYOK/PC wählen")
+add(" 🎙 Зажать Пробел — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК",
+    " 🎙 Hold Space to speak · Ctrl+G to record · /voice stt|tts|realtime to pick BYOK/PC",
+    " 🎙 Leertaste halten zum Sprechen · Ctrl+G Aufnahme · /voice stt|tts|realtime BYOK/PC wählen")
 add("выбрать мультимодальную Realtime аудио-модель и живой режим",
     "pick a multimodal Realtime audio model and live mode",
     "multimodales Realtime-Audiomodell und Live-Modus wählen")
@@ -561,9 +561,9 @@ add("не нагружает VRAM, если есть BYOK или другой П
 add("Режим",
     "Mode",
     "Modus")
-add("  управление     зажать Пробел (пустой ввод) — Push-to-Talk; нажать Пробел или Ctrl+G — запись с автостопом; /voice realtime — живые модели",
-    "  controls       hold Space (empty input) — Push-to-Talk; tap Space or Ctrl+G — record with auto-stop; /voice realtime — live models",
-    "  Steuerung      Leertaste halten (leere Eingabe) — Push-to-Talk; Leertaste tippen oder Ctrl+G — Aufnahme mit Autostopp; /voice realtime — Live-Modelle")
+add("  управление     зажать Пробел — Push-to-Talk (в непустом поле допишет); нажать Пробел на пустом вводе или Ctrl+G — запись с автостопом; /voice realtime — живые модели",
+    "  controls       hold Space — Push-to-Talk (appends to typed text); tap Space on empty input or Ctrl+G — record with auto-stop; /voice realtime — live models",
+    "  Steuerung      Leertaste halten — Push-to-Talk (ergänzt vorhandenen Text); Leertaste bei leerer Eingabe tippen oder Ctrl+G — Aufnahme mit Autostopp; /voice realtime — Live-Modelle")
 add("Обновляю список голосовых моделей (BYOK, Мои ПК, Realtime)…",
     "Refreshing the voice model list (BYOK, My PCs, Realtime)…",
     "Aktualisiere die Sprachmodellliste (BYOK, Meine PCs, Realtime)…")
@@ -607,9 +607,9 @@ add("Голосовой ввод/вывод и визуализатор: /voice 
     "Voice input/output and visualizer: /voice [on|off|tts|auto|stt|record|test|stop]",
     "Sprachein-/ausgabe und Visualizer: /voice [on|off|tts|auto|stt|record|test|stop]")
 add("Пробел", "Space", "Leertaste")
-add("зажать на пустом вводе — голосовой ввод (Push-to-Talk); нажать — запись с автостопом",
-    "hold on empty input — voice input (Push-to-Talk); tap — record with auto-stop",
-    "bei leerem Eingabefeld halten — Spracheingabe (Push-to-Talk); tippen — Aufnahme mit Autostopp")
+add("зажать — голосовой ввод (Push-to-Talk, в непустом поле допишет); на пустом вводе нажать — запись с автостопом",
+    "hold — voice input (Push-to-Talk, appends to typed text); tap on empty input — record with auto-stop",
+    "halten — Spracheingabe (Push-to-Talk, ergänzt vorhandenen Text); bei leerer Eingabe tippen — Aufnahme mit Autostopp")
 add("голосовой ввод в любой момент (дописать голосом к тексту)",
     "voice input anytime (append speech to current text)",
     "Spracheingabe jederzeit (Sprache an den Text anhängen)")

@@ -44,6 +44,9 @@ type VoiceHub struct {
 	SpaceSeq     int
 	LastSpaceAt  time.Time
 	SpaceRepeats int
+	// зажатие Пробела в непустом поле (дописать голосом): серия пробелов подряд
+	TypedSpaceRun int
+	TypedSpaceAt  time.Time
 	ActiveEngine string
 	StatusNote   string
 	StatusNoteAt time.Time
@@ -192,6 +195,43 @@ func (m *Model) handleVoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.stopVoiceSpeaking()
 		m.setVoiceNote(i18n.S("озвучка остановлена"))
 		return nil, true
+	}
+
+	// Пробел в непустом поле: обычный символ, но зажатие узнаём по автоповтору —
+	// второй пробел через 300–780 мс (задержка повтора), третий быстрее 150 мс
+	// (частота повтора). Тогда убираем вставленные пробелы и пишем голос,
+	// распознанное допишется к тексту. Ручной двойной пробел так не срабатывает.
+	if m.Cfg.TUI.VoiceEnabled && !m.thinking && m.picker == nil && !m.popupOpen &&
+		m.focus == FocusTUI && m.textarea.Value() != "" && m.voice.State != VoiceTranscribing {
+		if !isSpaceKey(msg) {
+			m.voice.TypedSpaceRun = 0
+			return nil, false
+		}
+		gap := time.Since(m.voice.TypedSpaceAt)
+		m.voice.TypedSpaceAt = time.Now()
+		val := m.textarea.Value()
+		switch {
+		case m.voice.TypedSpaceRun == 1 && gap >= 300*time.Millisecond && gap < 780*time.Millisecond && strings.HasSuffix(val, " "):
+			m.voice.TypedSpaceRun = 2
+		case m.voice.TypedSpaceRun == 2 && gap < 150*time.Millisecond && strings.HasSuffix(val, "  "):
+			m.voice.TypedSpaceRun = 0
+			m.textarea.SetValue(strings.TrimSuffix(val, "  "))
+			m.textarea.CursorEnd()
+			if m.voice.State == VoiceSpeaking {
+				m.stopVoiceSpeaking()
+			}
+			start := m.startVoiceRecording(VoiceModePTT)
+			if m.voice.State != VoiceRecording {
+				return start, true
+			}
+			seq := m.voice.SpaceSeq
+			return tea.Batch(start, tea.Tick(260*time.Millisecond, func(time.Time) tea.Msg {
+				return voiceSpaceCheckMsg{seq: seq, initial: false}
+			})), true
+		default:
+			m.voice.TypedSpaceRun = 1
+		}
+		return nil, false
 	}
 
 	// Space on empty input when VoiceEnabled is on starts Push-to-Talk / Tap-VAD recording.
@@ -750,7 +790,7 @@ func (m *Model) renderVoiceDock() string {
 	case VoiceSpeaking:
 		hint = i18n.S(" 🔊 Озвучиваю ответ агента (Esc или /voice stop — остановить)")
 	default:
-		hint = i18n.S(" 🎙 Зажать Пробел (пустой ввод) — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК")
+		hint = i18n.S(" 🎙 Зажать Пробел — говорить · Ctrl+G — запись · /voice stt|tts|realtime — выбор BYOK/ПК")
 		if m.voice.StatusNote != "" && time.Since(m.voice.StatusNoteAt) < 8*time.Second {
 			hint += " · " + m.voice.StatusNote
 		}
@@ -956,7 +996,7 @@ func (m *Model) voiceStatusSummary() string {
 	sb.WriteString(fmt.Sprintf(i18n.S("  вывод (TTS)    %s · %s (/voice tts — список моделей, /voice voice — голос)\n"), ttsState, m.preferredTTSEngineLabel()))
 	sb.WriteString(fmt.Sprintf(i18n.S("  каталог сети   облако BYOK: %d STT / %d TTS · другие ПК: %d (/voice refresh)\n"), cloudSTT, cloudTTS, peerCount))
 	sb.WriteString(fmt.Sprintf(i18n.S("  автоотправка   %s (/voice auto)\n"), autoState))
-	sb.WriteString(i18n.S("  управление     зажать Пробел (пустой ввод) — Push-to-Talk; нажать Пробел или Ctrl+G — запись с автостопом; /voice realtime — живые модели"))
+	sb.WriteString(i18n.S("  управление     зажать Пробел — Push-to-Talk (в непустом поле допишет); нажать Пробел на пустом вводе или Ctrl+G — запись с автостопом; /voice realtime — живые модели"))
 	return sb.String()
 }
 
