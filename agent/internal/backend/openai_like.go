@@ -18,6 +18,42 @@ type OpenAILike struct {
 	apiKey  string
 	model   string
 	client  *http.Client
+	// effort — уровень размышлений из /think ("" — не передавать);
+	// noEffort — провайдер его отверг, больше не шлём.
+	effort   string
+	noEffort bool
+}
+
+func (o *OpenAILike) SetEffort(level string) { o.effort, o.noEffort = level, false }
+
+// applyEffort кладёт уровень размышлений в запрос в том виде, какой понимает
+// провайдер: OpenRouter — reasoning.effort, остальные — reasoning_effort.
+func (o *OpenAILike) applyEffort(r *oaiRequest) {
+	if o.effort == "" || o.noEffort {
+		return
+	}
+	e := o.effort
+	if o.name == "openrouter" {
+		switch e {
+		case "off":
+			r.Reasoning = map[string]any{"enabled": false}
+		case "max":
+			r.Reasoning = map[string]any{"effort": "xhigh"}
+		default:
+			r.Reasoning = map[string]any{"effort": e}
+		}
+		return
+	}
+	switch e {
+	case "off":
+		e = "none"
+	case "max":
+		e = "high"
+		if o.name == "openai" {
+			e = "xhigh"
+		}
+	}
+	r.ReasoningEffort = e
 }
 
 func NewOpenAILike(name, baseURL, apiKey, model string) *OpenAILike {
@@ -33,17 +69,20 @@ func NewOpenAILike(name, baseURL, apiKey, model string) *OpenAILike {
 func (o *OpenAILike) Name() string { return o.name }
 
 type oaiMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content"`
-	ToolCalls  []oaiToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	Name       string         `json:"name,omitempty"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Name       string        `json:"name,omitempty"`
+	// ответы: рассуждения (DeepSeek, NIM, vLLM — reasoning_content; OpenRouter, Ollama — reasoning)
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
 }
 
 type oaiToolCall struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`
-	Function oaiFuncCall    `json:"function"`
+	ID       string      `json:"id"`
+	Type     string      `json:"type"`
+	Function oaiFuncCall `json:"function"`
 }
 
 type oaiFuncCall struct {
@@ -52,8 +91,8 @@ type oaiFuncCall struct {
 }
 
 type oaiTool struct {
-	Type     string         `json:"type"`
-	Function oaiFunction    `json:"function"`
+	Type     string      `json:"type"`
+	Function oaiFunction `json:"function"`
 }
 
 type oaiFunction struct {
@@ -67,6 +106,9 @@ type oaiRequest struct {
 	Messages []oaiMessage `json:"messages"`
 	Tools    []oaiTool    `json:"tools,omitempty"`
 	Stream   bool         `json:"stream,omitempty"`
+	// уровень размышлений: см. applyEffort
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	Reasoning       map[string]any `json:"reasoning,omitempty"`
 }
 
 type oaiResponse struct {
@@ -135,28 +177,37 @@ func (o *OpenAILike) authHeaders(req *http.Request) {
 }
 
 func (o *OpenAILike) Chat(ctx context.Context, messages []Message, tools []ToolDef) (*Response, error) {
-	body := oaiRequest{
-		Model:    o.model,
-		Messages: toOAIMessages(messages),
-		Tools:    toOAITools(tools),
-	}
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
-	}
-	o.authHeaders(req)
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("backend %s error %d: %s", o.name, resp.StatusCode, string(data))
+	var data []byte
+	for {
+		body := oaiRequest{
+			Model:    o.model,
+			Messages: toOAIMessages(messages),
+			Tools:    toOAITools(tools),
+		}
+		o.applyEffort(&body)
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		o.authHeaders(req)
+		resp, err := o.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		data, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			if (body.ReasoningEffort != "" || body.Reasoning != nil) && effortRejected(resp.StatusCode, data) {
+				o.noEffort = true // модель не умеет уровень размышлений — повторяем без него
+				continue
+			}
+			return nil, fmt.Errorf("backend %s error %d: %s", o.name, resp.StatusCode, string(data))
+		}
+		break
 	}
 	var or oaiResponse
 	if err := json.Unmarshal(data, &or); err != nil {
@@ -168,6 +219,7 @@ func (o *OpenAILike) Chat(ctx context.Context, messages []Message, tools []ToolD
 	msg := or.Choices[0].Message
 	out := &Response{
 		Content:   msg.Content,
+		Reasoning: strings.TrimSpace(msg.ReasoningContent + msg.Reasoning),
 		TokensIn:  or.Usage.PromptTokens,
 		TokensOut: or.Usage.CompletionTokens,
 	}
@@ -194,6 +246,7 @@ func (o *OpenAILike) Stream(ctx context.Context, messages []Message, tools []Too
 		Tools:    toOAITools(tools),
 		Stream:   true,
 	}
+	o.applyEffort(&body)
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -238,6 +291,9 @@ func (o *OpenAILike) Stream(ctx context.Context, messages []Message, tools []Too
 		delta := chunk.Choices[0].Delta
 		if delta.Content != "" {
 			out <- Token{Text: delta.Content}
+		}
+		if r := delta.ReasoningContent + delta.Reasoning; r != "" {
+			out <- Token{Reasoning: r}
 		}
 	}
 	out <- Token{Done: true}

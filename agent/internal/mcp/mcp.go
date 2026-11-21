@@ -84,6 +84,7 @@ type server struct {
 	state   State
 	err     string
 	tools   []*Tool
+	gen     int // растёт при каждой перенастройке: опоздавшее подключение не затрёт новое
 }
 
 // Manager держит подключения ко всем серверам процесса.
@@ -91,6 +92,7 @@ type Manager struct {
 	mu      sync.Mutex
 	servers map[string]*server
 	sinks   []func(*Tool)
+	drops   []func(names ...string)
 	ready   chan struct{}
 }
 
@@ -164,12 +166,20 @@ func newManager(cfg *config.Config) *Manager {
 	return m
 }
 
+// Unregistrar — реестр, из которого можно убрать инструменты выключенного сервера.
+type Unregistrar interface {
+	Unregister(names ...string)
+}
+
 // Attach отдаёт инструменты в реестр: уже готовые сразу, остальные — когда
 // их сервер подключится. Реестр потокобезопасный, агент видит новые
 // инструменты со следующего запроса к модели.
 func (m *Manager) Attach(r Registrar) {
 	m.mu.Lock()
 	m.sinks = append(m.sinks, func(t *Tool) { r.RegisterWith(t, t.policy) })
+	if u, ok := r.(Unregistrar); ok {
+		m.drops = append(m.drops, u.Unregister)
+	}
 	var ready []*Tool
 	for _, s := range m.servers {
 		ready = append(ready, s.tools...)
@@ -244,20 +254,91 @@ func transportOf(c config.MCPServer) string {
 	return "http"
 }
 
-func (m *Manager) fail(s *server, err error) {
+// Set применяет новую настройку одного сервера на лету: старое подключение
+// закрывается, его инструменты пропадают из реестров, и, если сервер не
+// выключен, он подключается заново в фоне (там же меняется режим загрузки).
+func (m *Manager) Set(name string, sc config.MCPServer) {
 	m.mu.Lock()
+	s := m.servers[name]
+	if s == nil {
+		s = &server{name: name}
+		m.servers[name] = s
+	}
+	s.gen++
+	old := s.session
+	var names []string
+	for _, t := range s.tools {
+		names = append(names, t.name)
+	}
+	s.session, s.tools, s.cfg, s.err = nil, nil, sc, ""
+	s.state = StateConnecting
+	if sc.Disabled {
+		s.state = StateDisabled
+	}
+	drops := append([]func(...string){}, m.drops...)
+	m.mu.Unlock()
+	if len(names) > 0 {
+		for _, d := range drops {
+			d(names...)
+		}
+	}
+	if old != nil {
+		go func() { _ = old.Close() }()
+	}
+	if !sc.Disabled {
+		go m.connect(s)
+	}
+}
+
+// Remove закрывает сервер и убирает его из менеджера.
+func (m *Manager) Remove(name string) {
+	m.Set(name, config.MCPServer{Disabled: true})
+	m.mu.Lock()
+	delete(m.servers, name)
+	m.mu.Unlock()
+}
+
+// Reconfigure применяет к общему менеджеру изменение одного сервера из cfg
+// (включение, выключение, режим загрузки, переподключение, удаление), не
+// трогая остальные подключения.
+func Reconfigure(cfg *config.Config, name string) {
+	sharedMu.Lock()
+	m := shared
+	if m != nil {
+		sharedKey = configKey(cfg)
+	}
+	sharedMu.Unlock()
+	if m == nil {
+		return
+	}
+	if sc, ok := cfg.MCP[name]; ok {
+		m.Set(name, sc)
+	} else {
+		m.Remove(name)
+	}
+}
+
+func (m *Manager) fail(s *server, gen int, err error) {
+	m.mu.Lock()
+	if s.gen != gen {
+		m.mu.Unlock()
+		return
+	}
 	s.state = StateFailed
 	s.err = err.Error()
 	m.mu.Unlock()
 }
 
 func (m *Manager) connect(s *server) {
+	m.mu.Lock()
+	gen, cfg := s.gen, s.cfg
+	m.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 	tail := &tailBuf{}
-	t, err := transportFor(s.cfg, tail)
+	t, err := transportFor(cfg, tail)
 	if err != nil {
-		m.fail(s, err)
+		m.fail(s, gen, err)
 		return
 	}
 	client := sdk.NewClient(&sdk.Implementation{Name: "allan", Version: Version}, nil)
@@ -269,25 +350,25 @@ func (m *Manager) connect(s *server) {
 		if msg := tail.String(); msg != "" {
 			err = fmt.Errorf("%w; stderr: %s", err, msg)
 		}
-		m.fail(s, fmt.Errorf("подключение: %w", err))
+		m.fail(s, gen, fmt.Errorf("подключение: %w", err))
 		return
 	}
 	var list []*sdk.Tool
 	for tool, err := range cs.Tools(ctx, nil) {
 		if err != nil {
 			_ = cs.Close()
-			m.fail(s, fmt.Errorf("список инструментов: %w", err))
+			m.fail(s, gen, fmt.Errorf("список инструментов: %w", err))
 			return
 		}
 		list = append(list, tool)
 	}
 	allow := map[string]bool{}
-	for _, n := range s.cfg.Tools {
+	for _, n := range cfg.Tools {
 		allow[n] = true
 	}
 	callTO := defaultCallTO
-	if s.cfg.Timeout > 0 {
-		callTO = time.Duration(s.cfg.Timeout) * time.Second
+	if cfg.Timeout > 0 {
+		callTO = time.Duration(cfg.Timeout) * time.Second
 	}
 	note := ""
 	if ir := cs.InitializeResult(); ir != nil {
@@ -296,7 +377,7 @@ func (m *Manager) connect(s *server) {
 			note = oneLine(ir.ServerInfo.Description)
 		}
 	}
-	policy := Policy(s.cfg.Load)
+	policy := Policy(cfg.Load)
 	var made []*Tool
 	for _, st := range list {
 		if len(allow) > 0 && !allow[st.Name] {
@@ -315,6 +396,11 @@ func (m *Manager) connect(s *server) {
 		})
 	}
 	m.mu.Lock()
+	if s.gen != gen { // пока подключались, сервер перенастроили
+		m.mu.Unlock()
+		_ = cs.Close()
+		return
+	}
 	s.session = cs
 	s.state = StateReady
 	s.err = ""

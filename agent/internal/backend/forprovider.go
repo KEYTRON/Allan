@@ -13,6 +13,16 @@ import (
 // added with `/api endpoint <name> <base_url>` work here too.
 func ForProvider(provider string, cfg *config.Config, model string) (Backend, error) {
 	provider = NormalizeProvider(provider)
+	b, err := forProvider(provider, cfg, model)
+	if err == nil {
+		if s, ok := b.(EffortSetter); ok {
+			s.SetEffort(cfg.ThinkFor(provider, model)) // ключ — имя провайдера, а не его протокол
+		}
+	}
+	return b, err
+}
+
+func forProvider(provider string, cfg *config.Config, model string) (Backend, error) {
 	if p, ok := cfg.Providers[provider]; ok {
 		if p.Type == "openai" && provider != "openai" {
 			// A custom OpenAI-compatible endpoint keeps its own name for the

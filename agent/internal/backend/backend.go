@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/keytron/allan/agent/config"
@@ -40,6 +41,7 @@ type ToolCall struct {
 
 type Response struct {
 	Content   string
+	Reasoning string // рассуждения модели, если провайдер их отдаёт
 	ToolCalls []ToolCall
 	TokensIn  int
 	TokensOut int
@@ -47,10 +49,11 @@ type Response struct {
 }
 
 type Token struct {
-	Text     string
-	ToolCall *ToolCall
-	Done     bool
-	Err      error
+	Text      string
+	Reasoning string
+	ToolCall  *ToolCall
+	Done      bool
+	Err       error
 }
 
 type Backend interface {
@@ -87,7 +90,40 @@ type ModelLister interface {
 	ModelInfos(ctx context.Context) ([]ModelInfo, error)
 }
 
+// EffortLevels — уровни размышлений, которые понимает /think.
+var EffortLevels = []string{"off", "low", "medium", "high", "max"}
+
+// EffortSetter — бэкенд, умеющий передавать модели уровень размышлений.
+type EffortSetter interface {
+	SetEffort(level string)
+}
+
 func New(cfg *config.Config) (Backend, error) {
+	b, err := newBackend(cfg)
+	if err == nil {
+		if s, ok := b.(EffortSetter); ok {
+			s.SetEffort(cfg.ThinkFor(cfg.Backend.Type, cfg.Backend.Model))
+		}
+	}
+	return b, err
+}
+
+// effortRejected — провайдер отверг параметр размышлений (модель его не знает):
+// такой запрос повторяется без него.
+func effortRejected(status int, body []byte) bool {
+	if status != 400 && status != 422 {
+		return false
+	}
+	b := strings.ToLower(string(body))
+	for _, w := range []string{"reasoning", "effort", "think", "output_config"} {
+		if strings.Contains(b, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func newBackend(cfg *config.Config) (Backend, error) {
 	if p, ok := cfg.Providers[cfg.Backend.Type]; ok {
 		model := cfg.Backend.Model
 		switch p.Type {

@@ -1,6 +1,6 @@
 # Allan roadmap
 
-Stage: 0.4.12
+Stage: 0.4.13
 
 Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the first unfinished one.
 
@@ -52,6 +52,7 @@ Stages go in order: `[x]` is done, `[ ]` is planned. The current stage is the fi
 - [x] 0.4.10: tool-call limit 50 (old configs with 10 are raised), history survives hitting the limit, Allan-LM credited as commit co-author
 - [x] 0.4.11: NVIDIA, Mistral, Gemini, Perplexity and Liquid AI providers; embeddings, rerankers and safety classifiers are kept out of `/model`; golang.org/x/crypto 0.59.0
 - [x] 0.4.12: MCP client (`allan mcp`, `/mcp`, on-demand `load_tools`); voice in the TUI: hold Space to dictate, Ctrl+G, spoken replies, a spectrum dock, STT/TTS through KEYTRON BYOK, own PCs and local engines with automatic fallback; speech language from the system locale (no voice input in Termux)
+- [x] 0.4.13: `/mcp` panel (toggle, reconnect, load mode, remove — one server at a time, no restart); `/think` reasoning effort per model (OpenRouter, OpenAI-compatible, Anthropic) with a silent retry when unsupported; reasoning shown above replies
 - [ ] Per-user API keys on the worker, so a site user can bring their own model access
 
 ## Quality and releases

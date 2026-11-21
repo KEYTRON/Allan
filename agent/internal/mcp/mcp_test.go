@@ -118,3 +118,48 @@ func TestToolNameIsProviderSafe(t *testing.T) {
 		t.Fatal("truncated names must stay distinct")
 	}
 }
+
+func (s *sink) Unregister(names ...string) {
+	s.mu.Lock()
+	s.r.Unregister(names...)
+	s.mu.Unlock()
+}
+
+// Сервер выключают и включают на лету: инструменты уходят из реестра и
+// возвращаются, а соседние серверы не переподключаются.
+func TestSetTogglesOneServer(t *testing.T) {
+	srv := config.MCPServer{Command: os.Args[0], Env: map[string]string{"ALLAN_MCP_TEST_SERVER": "1"}}
+	cfg := &config.Config{MCP: map[string]config.MCPServer{"a": srv, "b": srv}}
+	m := newManager(cfg)
+	defer m.Close()
+	reg := tools.NewRegistry()
+	m.Attach(&sink{r: reg})
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	m.Wait(ctx)
+	sessionB := m.servers["b"].session
+
+	off := srv
+	off.Disabled = true
+	m.Set("a", off)
+	if _, ok := reg.Get("mcp__a__echo"); ok {
+		t.Fatal("tools of a disabled server must leave the registry")
+	}
+	m.Set("a", srv)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, ok := reg.Get("mcp__a__echo"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a did not come back: %+v", m.Status())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if m.servers["b"].session != sessionB {
+		t.Fatal("b must keep its connection")
+	}
+	if _, err := reg.Run(ctx, "mcp__a__echo", map[string]any{"text": "снова"}); err != nil {
+		t.Fatalf("echo after re-enable: %v", err)
+	}
+}

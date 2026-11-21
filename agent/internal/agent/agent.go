@@ -31,7 +31,7 @@ const SkillExtractPrompt = `Ты только что решил задачу. И
 Будь максимально кратким. Только JSON, без обёрток.`
 
 type Event struct {
-	Kind    string // "thinking", "tool_call", "tool_result", "final", "warn", "skill_saved", "skill_used"
+	Kind    string // "thinking", "reasoning", "tool_call", "tool_result", "final", "warn", "skill_saved", "skill_used"
 	Text    string
 	Tool    string
 	ToolID  string
@@ -264,6 +264,9 @@ func (a *Agent) run(ctx context.Context, userInput string, events chan<- Event, 
 		}
 		a.Stats.TokensIn += resp.TokensIn
 		a.Stats.TokensOut += resp.TokensOut
+		if resp.Reasoning != "" {
+			events <- Event{Kind: "reasoning", Text: resp.Reasoning}
+		}
 
 		assistantMsg := backend.Message{
 			Role:      backend.RoleAssistant,

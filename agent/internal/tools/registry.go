@@ -63,6 +63,17 @@ func (r *Registry) RegisterWith(t Tool, p LoadPolicy) {
 	r.policy[t.Name()] = p
 }
 
+// Unregister убирает инструменты (например, выключенного MCP-сервера).
+func (r *Registry) Unregister(names ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, n := range names {
+		delete(r.tools, n)
+		delete(r.policy, n)
+		delete(r.loaded, n)
+	}
+}
+
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

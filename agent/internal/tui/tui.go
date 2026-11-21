@@ -59,6 +59,7 @@ type Model struct {
 	picker         *picker
 	cancelRun      context.CancelFunc
 	thinkingLabel  string
+	lastReasoning  string    // последние рассуждения модели: /think show
 	turnTokens     int       // Stats tokens when the current turn started
 	turnModel      string    // provider/model that answers the current turn
 	quitArmedAt    time.Time // first Ctrl+C on an empty input; a second one quits
@@ -190,6 +191,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handleAgentEvent(msg.ev); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case mcpStateMsg:
+		m.onMCPState(msg)
 	case statusBalanceMsg:
 		m.statusBalance = msg.text
 	case usageMsg:
@@ -582,6 +585,11 @@ func (m *Model) handleAgentEvent(ev agent.Event) tea.Cmd {
 				break
 			}
 		}
+	case "reasoning":
+		if ev.Text != "" {
+			m.lastReasoning = ev.Text
+			m.appendMsg(Message{Kind: MsgThink, Text: ev.Text})
+		}
 	case "final":
 		if ev.Text != "" {
 			m.appendMsg(Message{Kind: MsgAllan, Text: ev.Text, Meta: m.turnMeta()})
@@ -625,8 +633,9 @@ func (m *Model) handleSlash(input string) tea.Cmd {
 		m.appendMsg(Message{Kind: MsgSys, Text: i18n.S("Считаю расход…")})
 		return m.fetchUsage()
 	case "/mcp":
-		m.appendMsg(Message{Kind: MsgSys, Text: m.mcpStatusText()})
-		return nil
+		return m.handleMCPSlash(args)
+	case "/think":
+		return m.handleThinkSlash(args)
 	case "/clear":
 		m.messages = nil
 		m.Ag.ClearHistory()
@@ -1443,6 +1452,9 @@ func (m *Model) renderStatus() string {
 	left := " " + m.Cfg.Backend.Type + "/" + m.Cfg.Backend.Model
 	if m.Cfg.Backend.Type == "keytron" {
 		left = " " + m.Cfg.Backend.Model // the balance next to it already says KEYTRON or BYOK
+	}
+	if lvl := m.Cfg.ThinkFor(m.Cfg.Backend.Type, m.Cfg.Backend.Model); lvl != "" {
+		left += " · 💭 " + lvl
 	}
 	if m.ptyActive {
 		target := "shell"

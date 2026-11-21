@@ -28,6 +28,17 @@ type Config struct {
 	// MCP — внешние MCP-серверы: их инструменты становятся инструментами агента
 	// под именами mcp__<сервер>__<инструмент>. Ключ таблицы — имя сервера.
 	MCP map[string]MCPServer `toml:"mcp,omitempty"`
+	// Think — уровень размышлений по моделям: ключ "провайдер/модель",
+	// значение off|low|medium|high|max. Нет записи — умолчание модели.
+	Think map[string]string `toml:"think,omitempty"`
+}
+
+// ThinkFor — уровень размышлений для модели ("" — умолчание провайдера).
+func (c *Config) ThinkFor(provider, model string) string {
+	if c == nil {
+		return ""
+	}
+	return c.Think[provider+"/"+model]
 }
 
 // MCPServer описывает один MCP-сервер: либо команду (stdio), либо адрес (HTTP).

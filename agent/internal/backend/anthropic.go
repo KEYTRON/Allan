@@ -13,10 +13,27 @@ import (
 )
 
 type Anthropic struct {
-	apiKey  string
-	model   string
-	baseURL string
-	client  *http.Client
+	apiKey   string
+	model    string
+	baseURL  string
+	client   *http.Client
+	effort   string
+	noEffort bool
+}
+
+func (a *Anthropic) SetEffort(level string) { a.effort, a.noEffort = level, false }
+
+// outputConfig — уровень размышлений Claude: output_config.effort. Выключить
+// мышление у новых моделей нельзя, поэтому off — это low.
+func (a *Anthropic) outputConfig() map[string]any {
+	if a.effort == "" || a.noEffort {
+		return nil
+	}
+	e := a.effort
+	if e == "off" {
+		e = "low"
+	}
+	return map[string]any{"effort": e}
 }
 
 func NewAnthropic(apiKey, model, baseURL string) *Anthropic {
@@ -55,12 +72,13 @@ type anthTool struct {
 }
 
 type anthRequest struct {
-	Model     string        `json:"model"`
-	System    string        `json:"system,omitempty"`
-	Messages  []anthMessage `json:"messages"`
-	Tools     []anthTool    `json:"tools,omitempty"`
-	MaxTokens int           `json:"max_tokens"`
-	Stream    bool          `json:"stream,omitempty"`
+	Model        string         `json:"model"`
+	System       string         `json:"system,omitempty"`
+	Messages     []anthMessage  `json:"messages"`
+	Tools        []anthTool     `json:"tools,omitempty"`
+	MaxTokens    int            `json:"max_tokens"`
+	Stream       bool           `json:"stream,omitempty"`
+	OutputConfig map[string]any `json:"output_config,omitempty"`
 }
 
 type anthResponse struct {
@@ -141,30 +159,40 @@ func (a *Anthropic) headers(req *http.Request) {
 
 func (a *Anthropic) Chat(ctx context.Context, messages []Message, tools []ToolDef) (*Response, error) {
 	system, msgs := toAnthropicMessages(messages)
-	body := anthRequest{
-		Model:     a.model,
-		System:    system,
-		Messages:  msgs,
-		Tools:     toAnthropicTools(tools),
-		MaxTokens: 4096,
-	}
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/v1/messages", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
-	}
-	a.headers(req)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("anthropic error %d: %s", resp.StatusCode, string(data))
+	var data []byte
+	for {
+		// новые Claude думают всегда, и мысли тратят тот же лимит: 4096 им мало
+		body := anthRequest{
+			Model:        a.model,
+			System:       system,
+			Messages:     msgs,
+			Tools:        toAnthropicTools(tools),
+			MaxTokens:    16000,
+			OutputConfig: a.outputConfig(),
+		}
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/v1/messages", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		a.headers(req)
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		data, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			if body.OutputConfig != nil && effortRejected(resp.StatusCode, data) {
+				a.noEffort = true
+				continue
+			}
+			return nil, fmt.Errorf("anthropic error %d: %s", resp.StatusCode, string(data))
+		}
+		break
 	}
 	var ar anthResponse
 	if err := json.Unmarshal(data, &ar); err != nil {
@@ -205,12 +233,13 @@ func (a *Anthropic) Stream(ctx context.Context, messages []Message, tools []Tool
 	defer close(out)
 	system, msgs := toAnthropicMessages(messages)
 	body := anthRequest{
-		Model:     a.model,
-		System:    system,
-		Messages:  msgs,
-		Tools:     toAnthropicTools(tools),
-		MaxTokens: 4096,
-		Stream:    true,
+		Model:        a.model,
+		System:       system,
+		Messages:     msgs,
+		Tools:        toAnthropicTools(tools),
+		MaxTokens:    16000,
+		Stream:       true,
+		OutputConfig: a.outputConfig(),
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {

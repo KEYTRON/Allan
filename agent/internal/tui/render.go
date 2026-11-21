@@ -26,7 +26,11 @@ const (
 	MsgError
 	MsgToolBlock
 	MsgWelcome // start card, rendered from live state
+	MsgThink   // рассуждения модели: свёрнуты до нескольких строк, целиком — /think show
 )
+
+// thinkLines — сколько строк рассуждений видно в ленте.
+const thinkLines = 3
 
 type Message struct {
 	Kind   MsgKind
@@ -56,6 +60,8 @@ func renderMessage(m Message, width int) string {
 		return out
 	case MsgToolBlock:
 		return renderToolBlock(m, width)
+	case MsgThink:
+		return renderThink(m.Text, width)
 	case MsgWarn:
 		return prefixed(StyleWarn.Render("▲"), StyleWarn.Render(wrap(m.Text, width-2)), width)
 	case MsgError:
@@ -236,4 +242,28 @@ func sortedMapKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// renderThink — свёрнутый блок рассуждений: заголовок и первые строки, приглушённо.
+func renderThink(text string, width int) string {
+	var lines []string
+	for _, l := range strings.Split(wrap(strings.TrimSpace(text), maxInt(10, width-6)), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	head := StyleDim.Render("✻ " + i18n.S("Размышления"))
+	extra := 0
+	if len(lines) > thinkLines {
+		extra = len(lines) - thinkLines
+		lines = lines[:thinkLines]
+	}
+	out := []string{head}
+	for _, l := range lines {
+		out = append(out, StyleDim.Render("  │ "+xansi.Truncate(l, maxInt(10, width-6), "…")))
+	}
+	if extra > 0 {
+		out = append(out, StyleDim.Render(fmt.Sprintf(i18n.S("  │ … ещё %d строк · /think show — целиком"), extra)))
+	}
+	return strings.Join(out, "\n")
 }
